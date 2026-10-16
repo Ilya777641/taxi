@@ -1,0 +1,985 @@
+/* ============================================
+   ТАКСИ — жёлто-чёрная тема
+   ============================================ */
+
+:root {
+  --yellow: #FFD700;
+  --yellow-bright: #FFEB3B;
+  --yellow-deep: #F9A825;
+  --black: #0a0a0a;
+  --black-soft: #141414;
+  --black-card: #1a1a1a;
+  --black-hover: #222;
+  --border: rgba(255, 215, 0, 0.2);
+  --text: #f5f5f5;
+  --text-soft: #a0a0a0;
+  --text-muted: #666;
+  --danger: #f44336;
+  --success: #4caf50;
+  --info: #2196f3;
+  --shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+  --shadow-yellow: 0 4px 20px rgba(255, 215, 0, 0.15);
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
+html, body {
+  background: var(--black);
+  color: var(--text);
+  overflow-x: hidden;
+  width: 100%;
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background:
+    radial-gradient(circle at 15% 0%, rgba(255, 215, 0, 0.05) 0%, transparent 40%),
+    radial-gradient(circle at 85% 100%, rgba(255, 215, 0, 0.03) 0%, transparent 45%),
+    linear-gradient(180deg, var(--black) 0%, var(--black-soft) 100%);
+  background-attachment: fixed;
+  min-height: 100vh;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ============================================
+   LOADING
+   ============================================ */
+
+.loading-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--black);
+}
+
+.loading-spinner {
+  width: 50px;
+  height: 50px;
+  border: 3px solid rgba(255, 215, 0, 0.2);
+  border-top-color: var(--yellow);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ============================================
+   AUTH PAGE — страница входа
+   ============================================ */
+
+.auth-page {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  padding-top: calc(20px + env(safe-area-inset-top));
+  padding-bottom: calc(20px + env(safe-area-inset-bottom));
+  background:
+    radial-gradient(circle at 50% 30%, rgba(255, 215, 0, 0.08) 0%, transparent 60%),
+    var(--black);
+}
+
+.auth-card {
+  width: 100%;
+  max-width: 420px;
+  background: var(--black-card);
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  padding: 36px 28px;
+  box-shadow: var(--shadow);
+}
+
+.auth-logo {
+  text-align: center;
+  font-size: 56px;
+  margin-bottom: 8px;
+  line-height: 1;
+}
+
+.auth-title {
+  font-size: 36px;
+  font-weight: 800;
+  text-align: center;
+  color: var(--yellow);
+  letter-spacing: -0.02em;
+  margin-bottom: 4px;
+}
+
+.auth-subtitle {
+  text-align: center;
+  color: var(--text-soft);
+  font-size: 14px;
+  margin-bottom: 28px;
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 24px;
+  background: var(--black);
+  padding: 4px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+}
+
+.auth-tabs button {
+  flex: 1;
+  padding: 11px;
+  border: none;
+  background: transparent;
+  color: var(--text-soft);
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: all 0.2s;
+  font-family: inherit;
+}
+
+.auth-tabs button.active {
+  background: var(--yellow);
+  color: var(--black);
+  font-weight: 700;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.auth-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-soft);
+  font-weight: 500;
+}
+
+.auth-label input {
+  padding: 13px 16px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 16px;
+  font-family: inherit;
+  background: var(--black);
+  color: var(--text);
+  outline: none;
+  transition: all 0.2s;
+}
+
+.auth-label input::placeholder {
+  color: var(--text-muted);
+}
+
+.auth-label input:focus {
+  border-color: var(--yellow);
+  background: var(--black-soft);
+  box-shadow: 0 0 0 3px rgba(255, 215, 0, 0.1);
+}
+
+.auth-role-toggle {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.auth-role-toggle button {
+  flex: 1;
+  padding: 12px;
+  border: 2px solid var(--border);
+  background: var(--black);
+  color: var(--text-soft);
+  border-radius: 10px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+
+.auth-role-toggle button.active {
+  border-color: var(--yellow);
+  background: rgba(255, 215, 0, 0.1);
+  color: var(--yellow);
+}
+
+.auth-error {
+  padding: 10px 14px;
+  background: rgba(244, 67, 54, 0.1);
+  border: 1px solid rgba(244, 67, 54, 0.4);
+  border-radius: 10px;
+  color: #ff6b6b;
+  font-size: 13px;
+}
+
+.auth-info {
+  padding: 10px 14px;
+  background: rgba(76, 175, 80, 0.1);
+  border: 1px solid rgba(76, 175, 80, 0.4);
+  border-radius: 10px;
+  color: #66bb6a;
+  font-size: 13px;
+}
+
+.auth-submit {
+  padding: 15px;
+  border: none;
+  border-radius: 12px;
+  background: var(--yellow);
+  color: var(--black);
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  transition: all 0.2s;
+  font-family: inherit;
+  margin-top: 8px;
+  min-height: 50px;
+  box-shadow: var(--shadow-yellow);
+}
+
+.auth-submit:hover:not(:disabled) {
+  background: var(--yellow-bright);
+  transform: translateY(-1px);
+}
+
+.auth-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ============================================
+   CABINET — общий каркас кабинета
+   ============================================ */
+
+.cabinet {
+  min-height: 100vh;
+  padding: 20px;
+  padding-top: calc(20px + env(safe-area-inset-top));
+  padding-bottom: calc(20px + env(safe-area-inset-bottom));
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.cabinet-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 18px;
+  border-bottom: 2px solid var(--yellow);
+  margin-bottom: 24px;
+}
+
+.cabinet-header h1 {
+  font-size: 28px;
+  font-weight: 800;
+  color: var(--yellow);
+  letter-spacing: -0.02em;
+}
+
+.logout-btn {
+  padding: 8px 16px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  color: var(--text-soft);
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.logout-btn:hover {
+  border-color: var(--yellow);
+  color: var(--yellow);
+}
+
+.cabinet-body {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ============================================
+   ORDER FORM — форма заказа
+   ============================================ */
+
+.order-form {
+  background: var(--black-card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.kind-toggle {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.kind-toggle button {
+  flex: 1;
+  padding: 14px;
+  border: 2px solid var(--border);
+  background: var(--black);
+  color: var(--text-soft);
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+
+.kind-toggle button.active {
+  border-color: var(--yellow);
+  background: rgba(255, 215, 0, 0.1);
+  color: var(--yellow);
+}
+
+.order-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-soft);
+  font-weight: 500;
+}
+
+.order-form input {
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  font-size: 16px;
+  font-family: inherit;
+  background: var(--black);
+  color: var(--text);
+  outline: none;
+  transition: all 0.2s;
+}
+
+.order-form input:focus {
+  border-color: var(--yellow);
+  box-shadow: 0 0 0 3px rgba(255, 215, 0, 0.1);
+}
+
+.error-box {
+  padding: 12px 16px;
+  background: rgba(244, 67, 54, 0.1);
+  border: 1px solid rgba(244, 67, 54, 0.4);
+  border-radius: 10px;
+  color: #ff6b6b;
+  font-size: 13px;
+}
+
+/* ============================================
+   BUTTONS
+   ============================================ */
+
+.btn-primary {
+  padding: 15px 22px;
+  background: var(--yellow);
+  color: var(--black);
+  border: none;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+  font-family: inherit;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  transition: all 0.2s;
+  min-height: 50px;
+  box-shadow: var(--shadow-yellow);
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--yellow-bright);
+  transform: translateY(-1px);
+}
+
+.btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.btn-secondary {
+  padding: 13px 20px;
+  background: transparent;
+  color: var(--text);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+  min-height: 46px;
+}
+
+.btn-secondary:hover {
+  border-color: var(--yellow);
+  color: var(--yellow);
+}
+
+.btn-success {
+  padding: 13px 20px;
+  background: var(--success);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+  min-height: 46px;
+}
+
+.btn-success:hover { background: #43a047; }
+
+.btn-danger {
+  padding: 13px 20px;
+  background: transparent;
+  color: #ff6b6b;
+  border: 2px solid rgba(244, 67, 54, 0.4);
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+  min-height: 46px;
+}
+
+.btn-danger:hover {
+  background: rgba(244, 67, 54, 0.1);
+}
+
+/* ============================================
+   ACTIVE ORDER — активный заказ клиента
+   ============================================ */
+
+.active-order {
+  background: var(--black-card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.order-status {
+  padding: 16px 20px;
+  background: linear-gradient(135deg, rgba(255, 215, 0, 0.15) 0%, rgba(255, 215, 0, 0.05) 100%);
+  border: 1px solid var(--yellow);
+  border-radius: 14px;
+  color: var(--yellow);
+  font-size: 16px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.order-info {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.order-row {
+  display: flex;
+  gap: 8px;
+  font-size: 15px;
+  line-height: 1.5;
+}
+
+.order-row span {
+  color: var(--text-soft);
+  min-width: 90px;
+  flex-shrink: 0;
+}
+
+.order-row strong {
+  color: var(--yellow);
+}
+
+.order-row a {
+  color: var(--yellow);
+  text-decoration: none;
+}
+
+/* ============================================
+   DRIVER INFO — инфо о водителе
+   ============================================ */
+
+.driver-info {
+  padding: 18px 20px;
+  background: rgba(255, 215, 0, 0.05);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  text-align: center;
+}
+
+.driver-title {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 8px;
+}
+
+.driver-name {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+
+.driver-car {
+  font-size: 14px;
+  color: var(--text-soft);
+  margin-bottom: 10px;
+}
+
+.driver-phone {
+  display: inline-block;
+  padding: 10px 18px;
+  background: var(--yellow);
+  color: var(--black);
+  border-radius: 20px;
+  font-size: 14px;
+  font-weight: 700;
+  text-decoration: none;
+  transition: all 0.2s;
+}
+
+.driver-phone:hover { background: var(--yellow-bright); }
+
+.order-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.order-actions button {
+  flex: 1;
+}
+
+/* ============================================
+   CHAT — чат
+   ============================================ */
+
+.chat {
+  background: var(--black);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.chat-messages {
+  max-height: 300px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.chat-empty {
+  text-align: center;
+  padding: 20px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.msg {
+  padding: 10px 14px;
+  border-radius: 12px;
+  max-width: 80%;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.msg-client {
+  align-self: flex-start;
+  background: var(--black-card);
+  border: 1px solid var(--border);
+}
+
+.msg-admin {
+  align-self: flex-end;
+  background: rgba(255, 215, 0, 0.15);
+  border: 1px solid var(--yellow);
+}
+
+.msg-driver {
+  align-self: flex-end;
+  background: rgba(33, 150, 243, 0.15);
+  border: 1px solid var(--info);
+}
+
+.msg-author {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--yellow);
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.msg-text { color: var(--text); }
+
+.chat-form {
+  display: flex;
+  gap: 8px;
+}
+
+.chat-form input {
+  flex: 1;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  font-size: 15px;
+  font-family: inherit;
+  background: var(--black-card);
+  color: var(--text);
+  outline: none;
+}
+
+.chat-form input:focus {
+  border-color: var(--yellow);
+}
+
+.chat-form button {
+  width: 46px;
+  height: 46px;
+  border: none;
+  border-radius: 50%;
+  background: var(--yellow);
+  color: var(--black);
+  font-size: 18px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+  flex-shrink: 0;
+}
+
+.chat-form button:hover { background: var(--yellow-bright); }
+
+/* ============================================
+   DRIVER PANEL — панель водителя
+   ============================================ */
+
+.driver-panel {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.shift-btn {
+  padding: 16px;
+  border-radius: 14px;
+  font-size: 14px;
+  font-weight: 700;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+  border: 2px solid transparent;
+  min-height: 56px;
+}
+
+.shift-btn.on {
+  background: rgba(76, 175, 80, 0.15);
+  border-color: var(--success);
+  color: var(--success);
+}
+
+.shift-btn.off {
+  background: rgba(244, 67, 54, 0.1);
+  border-color: rgba(244, 67, 54, 0.4);
+  color: #ff6b6b;
+}
+
+.queue-info {
+  grid-column: span 2;
+  text-align: center;
+  padding: 14px;
+  background: var(--black-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  font-size: 14px;
+  color: var(--text-soft);
+}
+
+.queue-info strong {
+  color: var(--yellow);
+  font-size: 20px;
+}
+
+/* ============================================
+   DRIVER ORDER — заказ водителя
+   ============================================ */
+
+.driver-order {
+  background: var(--black-card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.order-status-label {
+  text-align: center;
+  padding: 12px;
+  background: rgba(255, 215, 0, 0.08);
+  border-radius: 10px;
+  color: var(--yellow);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+.order-card {
+  background: var(--black);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.order-card-kind {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--yellow);
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
+}
+
+.order-buttons {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+}
+
+.order-buttons button {
+  flex: 1;
+  min-width: 120px;
+}
+
+/* ============================================
+   ADMIN — админка
+   ============================================ */
+
+.admin-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 20px;
+  background: var(--black-card);
+  padding: 4px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+}
+
+.admin-tabs button {
+  flex: 1;
+  padding: 12px;
+  background: transparent;
+  border: none;
+  color: var(--text-soft);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  border-radius: 10px;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+
+.admin-tabs button.active {
+  background: var(--yellow);
+  color: var(--black);
+}
+
+.admin-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.admin-item {
+  background: var(--black-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.admin-item:hover {
+  border-color: var(--yellow);
+  transform: translateX(2px);
+}
+
+.item-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.item-kind {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.item-status {
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 600;
+  background: rgba(255, 215, 0, 0.1);
+  color: var(--yellow);
+}
+
+.status-pending { background: rgba(255, 215, 0, 0.1); color: var(--yellow); }
+.status-accepted { background: rgba(33, 150, 243, 0.15); color: #64b5f6; }
+.status-on_way { background: rgba(33, 150, 243, 0.2); color: #42a5f5; }
+.status-waiting { background: rgba(255, 152, 0, 0.15); color: #ffb74d; }
+.status-completed { background: rgba(76, 175, 80, 0.15); color: var(--success); }
+.status-cancelled { background: rgba(244, 67, 54, 0.15); color: #ff6b6b; }
+
+.item-desc {
+  font-size: 14px;
+  color: var(--text);
+}
+
+.item-meta {
+  font-size: 13px;
+  color: var(--text-soft);
+}
+
+.item-buttons {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.item-buttons button {
+  flex: 1;
+  padding: 10px 14px;
+  font-size: 13px;
+  min-height: 40px;
+}
+
+/* ============================================
+   ORDER DETAIL — детали заказа (админ)
+   ============================================ */
+
+.order-detail {
+  background: var(--black-card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.order-detail h3 {
+  color: var(--yellow);
+  font-size: 22px;
+  margin-bottom: 4px;
+}
+
+.btn-back {
+  background: none;
+  border: none;
+  color: var(--yellow);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  text-align: left;
+  padding: 4px 0;
+  transition: all 0.2s;
+  align-self: flex-start;
+}
+
+.btn-back:hover {
+  transform: translateX(-3px);
+}
+
+/* ============================================
+   EMPTY STATE
+   ============================================ */
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text-muted);
+  font-size: 15px;
+}
+
+/* ============================================
+   АДАПТИВ — мобилка
+   ============================================ */
+
+@media (max-width: 480px) {
+  .cabinet {
+    padding: 16px 14px 40px;
+  }
+
+  .cabinet-header h1 { font-size: 22px; }
+  .cabinet-header { padding-bottom: 14px; margin-bottom: 18px; }
+
+  .logout-btn { padding: 6px 12px; font-size: 12px; }
+
+  .auth-card { padding: 28px 20px; }
+  .auth-title { font-size: 30px; }
+  .auth-logo { font-size: 48px; }
+
+  .order-form, .active-order, .driver-order, .order-detail {
+    padding: 18px 16px;
+    border-radius: 16px;
+  }
+
+  .driver-panel { grid-template-columns: 1fr; }
+  .queue-info { grid-column: span 1; }
+
+  .order-row span { min-width: 80px; font-size: 14px; }
+  .order-row { font-size: 14px; }
+
+  .order-actions { flex-direction: column; }
+
+  .msg { max-width: 90%; }
+
+  .admin-tabs button { font-size: 12px; padding: 10px 6px; }
+
+  .driver-name { font-size: 18px; }
+}

@@ -1,0 +1,11 @@
+name = "taxi"
+main = "functions/[[path]].js"
+compatibility_date = "2026-10-15"
+compatibility_flags = ["nodejs_compat"]
+
+
+
+[[d1_databases]]
+binding = "DB"
+database_name = "taxi-db"
+database_id = "035c29e9-df94-4f60-bfe5-7276ff9403f7"

@@ -1,0 +1,282 @@
+import { useState, useEffect, useRef } from 'react';
+import { API_URL } from '../config';
+
+const POLL_INTERVAL = 3000;
+
+function ClientCabinet({ user, token, authFetch, onLogout }) {
+  const [activeOrder, setActiveOrder] = useState(null);
+  const [orderKind, setOrderKind] = useState('taxi');
+  const [address, setAddress] = useState('');
+  const [addressTo, setAddressTo] = useState('');
+  const [deliveryItem, setDeliveryItem] = useState('');
+  const [deliveryFrom, setDeliveryFrom] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [messages, setMessages] = useState([]);
+  const [messageText, setMessageText] = useState('');
+  const [showChat, setShowChat] = useState(false);
+
+  const intervalRef = useRef(null);
+  const msgIntervalRef = useRef(null);
+
+  // Опрос активного заказа
+  useEffect(() => {
+    const poll = async () => {
+      try {
+        const res = await authFetch('/api/orders/my-active');
+        const data = await res.json();
+        setActiveOrder(data);
+      } catch (err) {}
+    };
+
+    poll();
+    intervalRef.current = setInterval(poll, POLL_INTERVAL);
+    return () => clearInterval(intervalRef.current);
+  }, [authFetch]);
+
+  // Опрос сообщений активного заказа
+  useEffect(() => {
+    if (!activeOrder?.id || !showChat) return;
+
+    const pollMessages = async () => {
+      try {
+        const res = await authFetch(`/api/orders/${activeOrder.id}/messages`);
+        const data = await res.json();
+        setMessages(data);
+      } catch (err) {}
+    };
+
+    pollMessages();
+    msgIntervalRef.current = setInterval(pollMessages, POLL_INTERVAL);
+    return () => clearInterval(msgIntervalRef.current);
+  }, [activeOrder?.id, showChat, authFetch]);
+
+  const handleOrder = async (e) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      const body = {
+        order_kind: orderKind,
+        address: orderKind === 'taxi' ? address : null,
+        address_to: addressTo,
+        delivery_item: orderKind === 'delivery' ? deliveryItem : null,
+        delivery_from: orderKind === 'delivery' ? deliveryFrom : null,
+      };
+
+      const res = await authFetch('/api/orders', {
+        method: 'POST',
+        body: JSON.stringify(body),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Ошибка создания заказа');
+        setLoading(false);
+        return;
+      }
+
+      setActiveOrder(data);
+      setAddress(''); setAddressTo('');
+      setDeliveryItem(''); setDeliveryFrom('');
+    } catch (err) {
+      setError('Ошибка соединения');
+    }
+    setLoading(false);
+  };
+
+  const handleCancel = async () => {
+    if (!confirm('Отменить заказ?')) return;
+    try {
+      await authFetch(`/api/orders/${activeOrder.id}/cancel`, { method: 'POST' });
+      setActiveOrder(null);
+    } catch (err) {}
+  };
+
+  const handleSendMessage = async (e) => {
+    e.preventDefault();
+    if (!messageText.trim()) return;
+    try {
+      await authFetch(`/api/orders/${activeOrder.id}/messages`, {
+        method: 'POST',
+        body: JSON.stringify({ text: messageText }),
+      });
+      setMessageText('');
+    } catch (err) {}
+  };
+
+  const getStatusLabel = (status) => {
+    const map = {
+      pending: '⏳ Ищем водителя',
+      accepted: '✅ Водитель принял заказ',
+      on_way: '🚗 Водитель в пути',
+      waiting: '⏰ Водитель ожидает',
+    };
+    return map[status] || status;
+  };
+
+  return (
+    <div className="cabinet">
+      <header className="cabinet-header">
+        <h1>🚖 Такси</h1>
+        <button className="logout-btn" onClick={onLogout}>{user.username} ↪</button>
+      </header>
+
+      <main className="cabinet-body">
+        {!activeOrder ? (
+          <form className="order-form" onSubmit={handleOrder}>
+            <div className="kind-toggle">
+              <button
+                type="button"
+                className={orderKind === 'taxi' ? 'active' : ''}
+                onClick={() => setOrderKind('taxi')}
+              >
+                🚖 Такси
+              </button>
+              <button
+                type="button"
+                className={orderKind === 'delivery' ? 'active' : ''}
+                onClick={() => setOrderKind('delivery')}
+              >
+                📦 Доставка
+              </button>
+            </div>
+
+            {orderKind === 'taxi' ? (
+              <>
+                <label>Откуда
+                  <input
+                    type="text"
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    placeholder="ул. Ленина 15"
+                    required
+                  />
+                </label>
+                <label>Куда
+                  <input
+                    type="text"
+                    value={addressTo}
+                    onChange={(e) => setAddressTo(e.target.value)}
+                    placeholder="ул. Союзная 20"
+                    required
+                  />
+                </label>
+              </>
+            ) : (
+              <>
+                <label>Что доставить
+                  <input
+                    type="text"
+                    value={deliveryItem}
+                    onChange={(e) => setDeliveryItem(e.target.value)}
+                    placeholder="2 литра молока, хлеб"
+                    required
+                  />
+                </label>
+                <label>Из какого магазина
+                  <input
+                    type="text"
+                    value={deliveryFrom}
+                    onChange={(e) => setDeliveryFrom(e.target.value)}
+                    placeholder="Магнит на Ленина"
+                    required
+                  />
+                </label>
+                <label>Куда доставить
+                  <input
+                    type="text"
+                    value={addressTo}
+                    onChange={(e) => setAddressTo(e.target.value)}
+                    placeholder="ул. Союзная 20"
+                    required
+                  />
+                </label>
+              </>
+            )}
+
+            {error && <div className="error-box">⚠️ {error}</div>}
+
+            <button type="submit" className="btn-primary" disabled={loading}>
+              {loading ? 'Отправка...' : '🚖 Вызвать такси'}
+            </button>
+          </form>
+        ) : (
+          <div className="active-order">
+            <div className="order-status">{getStatusLabel(activeOrder.status)}</div>
+
+            <div className="order-info">
+              {activeOrder.order_kind === 'taxi' ? (
+                <>
+                  <div className="order-row"><span>Откуда:</span> {activeOrder.address}</div>
+                  <div className="order-row"><span>Куда:</span> {activeOrder.address_to}</div>
+                </>
+              ) : (
+                <>
+                  <div className="order-row"><span>Доставить:</span> {activeOrder.delivery_item}</div>
+                  <div className="order-row"><span>Из:</span> {activeOrder.delivery_from}</div>
+                  <div className="order-row"><span>Куда:</span> {activeOrder.address_to}</div>
+                </>
+              )}
+              <div className="order-row"><span>Цена:</span> <strong>{activeOrder.price} ₽</strong></div>
+            </div>
+
+            {activeOrder.driver_name && (
+              <div className="driver-info">
+                <div className="driver-title">🚗 Водитель</div>
+                <div className="driver-name">{activeOrder.driver_name}</div>
+                {activeOrder.car_model && (
+                  <div className="driver-car">
+                    {activeOrder.car_model} — {activeOrder.car_number}
+                  </div>
+                )}
+                {activeOrder.driver_phone && (
+                  <a href={`tel:${activeOrder.driver_phone}`} className="driver-phone">
+                    📞 {activeOrder.driver_phone}
+                  </a>
+                )}
+              </div>
+            )}
+
+            <div className="order-actions">
+              <button className="btn-secondary" onClick={() => setShowChat(!showChat)}>
+                💬 {showChat ? 'Скрыть чат' : 'Написать диспетчеру'}
+              </button>
+              <button className="btn-danger" onClick={handleCancel}>
+                ❌ Отменить заказ
+              </button>
+            </div>
+
+            {showChat && (
+              <div className="chat">
+                <div className="chat-messages">
+                  {messages.length === 0 && (
+                    <div className="chat-empty">Сообщений пока нет</div>
+                  )}
+                  {messages.map((m) => (
+                    <div key={m.id} className={`msg msg-${m.sender_role}`}>
+                      <div className="msg-author">{m.username}</div>
+                      <div className="msg-text">{m.text}</div>
+                    </div>
+                  ))}
+                </div>
+                <form className="chat-form" onSubmit={handleSendMessage}>
+                  <input
+                    type="text"
+                    value={messageText}
+                    onChange={(e) => setMessageText(e.target.value)}
+                    placeholder="Сообщение..."
+                  />
+                  <button type="submit">➤</button>
+                </form>
+              </div>
+            )}
+          </div>
+        )}
+      </main>
+    </div>
+  );
+}
+
+export default ClientCabinet;
