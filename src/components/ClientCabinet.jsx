@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { API_URL, YANDEX_KEY } from '../config';
+import { API_URL, YANDEX_KEY, YANDEX_GEO_KEY } from '../config';
 import MapPicker from './MapPicker';
 
 const POLL_INTERVAL = 3000;
@@ -18,7 +18,7 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
   const [messages, setMessages] = useState([]);
   const [messageText, setMessageText] = useState('');
   const [showChat, setShowChat] = useState(false);
-  const [showMap, setShowMap] = useState(null); // 'from' | 'to' | null
+  const [showMap, setShowMap] = useState(null);
 
   const intervalRef = useRef(null);
   const msgIntervalRef = useRef(null);
@@ -59,13 +59,14 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
   const reverseGeocode = async (lat, lng) => {
     try {
       const res = await fetch(
-        `https://geocode-maps.yandex.ru/1.x/?apikey=${YANDEX_KEY}&geocode=${lng},${lat}&format=json&results=1&lang=ru_RU`
+        `https://geocode-maps.yandex.ru/1.x/?apikey=${YANDEX_GEO_KEY}&geocode=${lng},${lat}&format=json&results=1&lang=ru_RU`
       );
       const data = await res.json();
-      const address = data.response.GeoObjectCollection.featureMember[0]?.GeoObject.metaDataProperty.GeocoderMetaData.text;
+      const address =
+        data.response?.GeoObjectCollection?.featureMember[0]?.GeoObject?.metaDataProperty?.GeocoderMetaData?.text;
       return address || '';
     } catch (err) {
-      console.error(err);
+      console.error('Geocode error:', err);
       return '';
     }
   };
