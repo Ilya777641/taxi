@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react';
-import { YANDEX_KEY } from '../config';
 
 function MapPicker({ initialCoords, onSelect, onClose }) {
   const mapRef = useRef(null);
@@ -7,7 +6,9 @@ function MapPicker({ initialCoords, onSelect, onClose }) {
   const [coords, setCoords] = useState(initialCoords || [54.6917, 55.0095]);
 
   useEffect(() => {
-    // Ждём загрузки API
+    let mapInstance = null;
+    let placemark = null;
+
     const initMap = () => {
       if (!window.ymaps) {
         setTimeout(initMap, 200);
@@ -17,26 +18,29 @@ function MapPicker({ initialCoords, onSelect, onClose }) {
       window.ymaps.ready(() => {
         if (!mapRef.current) return;
 
-        const map = new window.ymaps.Map(mapRef.current, {
+        // Уничтожаем старую карту, если она была (на всякий случай)
+        if (mapInstance) {
+          mapInstance.destroy();
+        }
+
+        mapInstance = new window.ymaps.Map(mapRef.current, {
           center: coords,
           zoom: 15,
           controls: ['zoomControl', 'fullscreenControl'],
         });
 
-        const placemark = new window.ymaps.Placemark(coords, {}, {
+        placemark = new window.ymaps.Placemark(coords, {}, {
           preset: 'islands#yellowDotIcon',
           draggable: true,
         });
-        map.geoObjects.add(placemark);
+        mapInstance.geoObjects.add(placemark);
 
-        // Клик по карте — перемещаем метку
-        map.events.add('click', (e) => {
+        mapInstance.events.add('click', (e) => {
           const newCoords = e.get('coords');
           placemark.geometry.setCoordinates(newCoords);
           setCoords(newCoords);
         });
 
-        // Перетаскивание метки
         placemark.events.add('dragend', () => {
           setCoords(placemark.geometry.getCoordinates());
         });
@@ -47,10 +51,17 @@ function MapPicker({ initialCoords, onSelect, onClose }) {
 
     initMap();
 
+    // Очистка при закрытии модалки
     return () => {
-      if (mapRef.current) mapRef.current.innerHTML = '';
+      if (mapInstance) {
+        mapInstance.destroy();
+      }
+      if (mapRef.current) {
+        mapRef.current.innerHTML = '';
+      }
+      setMapReady(false);
     };
-  }, []);
+  }, []); // Пустой массив, чтобы инициализация была один раз
 
   const handleConfirm = () => {
     onSelect({
