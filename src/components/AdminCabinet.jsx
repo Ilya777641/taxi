@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import AccountSettings from './AccountSettings';
 import SwipeableItem from './SwipeableItem';
 
@@ -8,6 +8,7 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
   const [orders, setOrders] = useState([]);
   const [drivers, setDrivers] = useState([]);
   const [pendingDrivers, setPendingDrivers] = useState([]);
+  const [admins, setAdmins] = useState([]); 
   const [tab, setTab] = useState('orders');
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -15,8 +16,8 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
   const [showSettings, setShowSettings] = useState(false);
   const [currentUser, setCurrentUser] = useState(user);
 
-  const intervalRef = useRef(null);
-  const msgIntervalRef = useRef(null);
+  const [newAdminName, setNewAdminName] = useState('');
+  const [newAdminPass, setNewAdminPass] = useState('');
 
   const poll = async () => {
     try {
@@ -29,29 +30,18 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
       } else if (tab === 'drivers') {
         const res = await authFetch('/api/admin/drivers');
         setDrivers(await res.json());
+      } else if (tab === 'admins') {
+        const res = await authFetch('/api/admin/admins');
+        setAdmins(await res.json());
       }
     } catch (err) {}
   };
 
   useEffect(() => {
     poll();
-    intervalRef.current = setInterval(poll, POLL_INTERVAL);
-    return () => clearInterval(intervalRef.current);
+    const intervalRef = setInterval(poll, POLL_INTERVAL);
+    return () => clearInterval(intervalRef);
   }, [tab]);
-
-  // Опрос сообщений выбранного заказа
-  useEffect(() => {
-    if (!selectedOrder?.id) return;
-    const pollMessages = async () => {
-      try {
-        const res = await authFetch(`/api/orders/${selectedOrder.id}/messages`);
-        setMessages(await res.json());
-      } catch (err) {}
-    };
-    pollMessages();
-    msgIntervalRef.current = setInterval(pollMessages, POLL_INTERVAL);
-    return () => clearInterval(msgIntervalRef.current);
-  }, [selectedOrder?.id]);
 
   const approveDriver = async (id) => {
     await authFetch(`/api/admin/drivers/${id}/approve`, { method: 'POST' });
@@ -87,6 +77,30 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
     } catch (err) {}
   };
 
+  const handleAddAdmin = async (e) => {
+    e.preventDefault();
+    try {
+      const res = await authFetch('/api/admin/admins', {
+        method: 'POST',
+        body: JSON.stringify({ username: newAdminName, password: newAdminPass }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setNewAdminName(''); setNewAdminPass('');
+      poll();
+      alert('Админ добавлен');
+    } catch (err) { alert(err.message); }
+  };
+
+  const handleDeleteAdmin = async (id) => {
+    if (!window.confirm('Удалить админа?')) return;
+    try {
+      const res = await authFetch(`/api/admin/admins/${id}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error((await res.json()).error);
+      poll();
+    } catch (err) { alert(err.message); }
+  };
+
   const getStatusLabel = (status) => {
     const map = {
       pending: '⏳ Ищем водителя', accepted: '✅ Принят', on_way: '🚗 В пути',
@@ -95,13 +109,11 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
     return map[status] || status;
   };
 
-  // Функция для статуса водителя
   const getDriverStatus = (driver) => {
     if (!driver.is_on_shift) return '⚫ Не на смене';
     if (driver.status === 'pending') return '⏳ На модерации';
     if (driver.status === 'blocked') return '🚫 Заблокирован';
     
-    // Ищем активный заказ водителя
     const activeOrder = orders.find(o => o.driver_id === driver.id && o.status !== 'completed' && o.status !== 'cancelled');
     if (activeOrder) {
       if (activeOrder.status === 'on_way') return `🚗 В пути (Заказ #${activeOrder.id})`;
@@ -125,15 +137,17 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
         </div>
       </header>
 
-      <div className="admin-tabs">
+      <div className="admin-tabs" style={{ flexWrap: 'wrap' }}>
         <button className={tab === 'orders' ? 'active' : ''} onClick={() => setTab('orders')}>📋 Заказы</button>
         <button className={tab === 'pending' ? 'active' : ''} onClick={() => setTab('pending')}>
           ⏳ Модерация {pendingDrivers.length > 0 && `(${pendingDrivers.length})`}
         </button>
         <button className={tab === 'drivers' ? 'active' : ''} onClick={() => setTab('drivers')}>🚗 Водители</button>
+        <button className={tab === 'admins' ? 'active' : ''} onClick={() => setTab('admins')}>👑 Админы</button>
       </div>
 
       <main className="cabinet-body">
+        {/* ВКЛАДКА ЗАКАЗЫ */}
         {tab === 'orders' && !selectedOrder && (
           <div className="admin-list">
             {orders.length === 0 && <div className="empty-state">Заказов нет</div>}
@@ -155,6 +169,7 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
           </div>
         )}
 
+        {/* ДЕТАЛИ ЗАКАЗА */}
         {tab === 'orders' && selectedOrder && (
           <div className="order-detail">
             <button className="btn-back" onClick={() => setSelectedOrder(null)}>← Назад</button>
@@ -183,11 +198,12 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
           </div>
         )}
 
+        {/* ВКЛАДКА МОДЕРАЦИЯ */}
         {tab === 'pending' && (
           <div className="admin-list">
             {pendingDrivers.length === 0 && <div className="empty-state">Нет заявок</div>}
             {pendingDrivers.map((d) => (
-              <div key={d.id} className="admin-item" style={{ cursor: 'default', padding: '16px', background: 'var(--black-card)', borderRadius: '14px', border: '1px solid var(--border)' }}>
+              <div key={d.id} className="admin-item" style={{ cursor: 'default', padding: '16px', background: 'var(--black-card)', borderRadius: '14px', border: '1px solid var(--border)', marginBottom: '10px' }}>
                 <div className="item-row">
                   <span className="item-kind">🚗 {d.username}</span>
                 </div>
@@ -201,6 +217,7 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
           </div>
         )}
 
+        {/* ВКЛАДКА ВОДИТЕЛИ */}
         {tab === 'drivers' && (
           <div className="admin-list">
             {drivers.map((d) => (
@@ -220,6 +237,32 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
                   </div>
                 </div>
               </SwipeableItem>
+            ))}
+          </div>
+        )}
+
+        {/* ВКЛАДКА АДМИНЫ */}
+        {tab === 'admins' && (
+          <div className="admin-list">
+            <div className="order-form" style={{ marginBottom: '20px', background: 'var(--black-card)' }}>
+              <h3 style={{ color: 'var(--yellow)', marginBottom: '10px' }}>Добавить админа</h3>
+              <form onSubmit={handleAddAdmin} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                <input type="text" placeholder="Имя" value={newAdminName} onChange={(e) => setNewAdminName(e.target.value)} required />
+                <input type="text" placeholder="Пароль (4 цифры)" inputMode="numeric" maxLength={4} value={newAdminPass} onChange={(e) => setNewAdminPass(e.target.value.replace(/\D/g, '').slice(0, 4))} required />
+                <button type="submit" className="btn-primary" style={{ width: '100%' }}>Создать</button>
+              </form>
+            </div>
+            
+            {admins.map(a => (
+              <div key={a.id} className="admin-item" style={{ background: 'var(--black-card)', padding: '16px', borderRadius: '14px', border: '1px solid var(--border)', marginBottom: '10px' }}>
+                <div className="item-row">
+                  <span className="item-kind">{a.username}</span>
+                  <span className="item-meta">Код: {a.login_code || '—'}</span>
+                </div>
+                {a.id !== currentUser.id && (
+                  <button className="btn-danger" onClick={() => handleDeleteAdmin(a.id)} style={{ marginTop: '10px', width: '100%' }}>Удалить</button>
+                )}
+              </div>
             ))}
           </div>
         )}

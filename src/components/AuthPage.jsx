@@ -18,8 +18,8 @@ function AuthPage({ onLogin }) {
     setError('');
     setInfo('');
 
-    if (username.trim().length < 4) {
-      setError('Логин минимум 4 символа');
+    if (username.trim().length < 2) {
+      setError('Имя минимум 2 символа');
       return;
     }
     if (!/^\d{4}$/.test(password)) {
@@ -98,12 +98,12 @@ function AuthPage({ onLogin }) {
 
         <form onSubmit={handleSubmit} className="auth-form">
           <label className="auth-label">
-            Логин
+            Имя
             <input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="Минимум 4 символа"
+              placeholder="Например, Илья"
               maxLength={30}
               required
             />
