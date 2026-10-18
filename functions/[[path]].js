@@ -8,6 +8,7 @@ app.use('*', cors({
     'http://localhost:5173',
     'https://taxi.my-money.site',
     'https://taxi-9w7.pages.dev',
+    'https://2225dfc0.taxi-9w7.pages.dev',
   ],
   credentials: true,
 }));
@@ -151,37 +152,39 @@ async function adminRequired(c, next) {
 }
 
 // ============================================================
-// ОПРЕДЕЛЕНИЕ ЦЕНЫ — РЕГИСТРОНЕЗАВИСИМО (UTF-8 SAFE)
+// ОПРЕДЕЛЕНИЕ ЦЕНЫ — УЛИЦЫ ПРИОРИТЕТ, ТОЧНОЕ СОВПАДЕНИЕ
 // ============================================================
 
 async function calculatePrice(db, address) {
   if (!address) return { price: 0, type: 'local', found: false };
 
-  // Нормализуем адрес: lowercase, только буквы/цифры/пробелы
+  // Нормализуем: lowercase, только буквы/цифры/пробелы
   const normalized = address.toLowerCase().replace(/[^а-яёa-z0-9\s]/gi, ' ');
   const words = normalized.split(/\s+/).filter(w => w.length >= 3);
 
   if (words.length === 0) return { price: 0, type: 'local', found: false };
 
-  // 1. Населённые пункты — тянем все, сравниваем в JS (UTF-8 безопасно)
-  const locResult = await db.prepare(
-    'SELECT keyword, display_name, price FROM taxi_locations'
-  ).all();
-  for (const loc of (locResult.results || [])) {
-    const kw = loc.keyword.toLowerCase();
-    if (words.some(w => w === kw || w.includes(kw) || kw.includes(w))) {
-      return { price: loc.price, type: 'long', found: true, matched: loc.display_name };
-    }
-  }
-
-  // 2. Улицы — тоже самое
+  // 1. УЛИЦЫ — ПРИОРИТЕТ (местная поездка)
   const stResult = await db.prepare(
     'SELECT keyword, display_name, price FROM taxi_streets'
   ).all();
+
   for (const st of (stResult.results || [])) {
     const kw = st.keyword.toLowerCase();
-    if (words.some(w => w === kw || w.includes(kw) || kw.includes(w))) {
+    if (words.some(w => w === kw)) {
       return { price: st.price, type: 'local', found: true, matched: st.display_name };
+    }
+  }
+
+  // 2. Населённые пункты — только если улица не найдена
+  const locResult = await db.prepare(
+    'SELECT keyword, display_name, price FROM taxi_locations'
+  ).all();
+
+  for (const loc of (locResult.results || [])) {
+    const kw = loc.keyword.toLowerCase();
+    if (words.some(w => w === kw)) {
+      return { price: loc.price, type: 'long', found: true, matched: loc.display_name };
     }
   }
 
@@ -438,14 +441,12 @@ app.get('/api/driver/my-order', authRequired, async (c) => {
 
   if (order) return c.json({ order, type: 'assigned' });
 
-  // Если ничего не назначено — но водитель на смене — берём первый свободный pending
-  // (упрощённая очередь без атомарного назначения через cron)
+  // Упрощённая очередь: если я первый на смене — беру первый свободный pending
   const me = await c.env.DB.prepare(
     'SELECT is_on_shift FROM taxi_users WHERE id = ?'
   ).bind(c.get('userId')).first();
 
   if (me?.is_on_shift) {
-    // Проверяем, что я первый в очереди
     const firstInQueue = await c.env.DB.prepare(
       `SELECT id FROM taxi_users 
        WHERE role = 'driver' AND is_on_shift = 1 
@@ -475,7 +476,6 @@ app.post('/api/orders/:id/accept', authRequired, async (c) => {
   const orderId = c.req.param('id');
   const driverId = c.get('userId');
 
-  // Атомарное принятие — заказ должен быть pending и без водителя
   const result = await c.env.DB.prepare(
     `UPDATE taxi_orders
      SET driver_id = ?, status = 'accepted', accepted_at = datetime('now'), assigned_to = NULL
@@ -485,7 +485,6 @@ app.post('/api/orders/:id/accept', authRequired, async (c) => {
 
   if (!result) return c.json({ error: 'Заказ уже принят другим водителем' }, 409);
 
-  // Водитель — в конец очереди
   const max = await c.env.DB.prepare(
     'SELECT COALESCE(MAX(queue_position), 0) AS max_pos FROM taxi_users WHERE role = ? AND is_on_shift = 1'
   ).bind('driver').first();
