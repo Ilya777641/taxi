@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { API_URL } from '../config';
+import { API_URL, YANDEX_KEY } from '../config';
+import MapPicker from './MapPicker';
 
 const POLL_INTERVAL = 3000;
 
@@ -8,6 +9,8 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
   const [orderKind, setOrderKind] = useState('taxi');
   const [address, setAddress] = useState('');
   const [addressTo, setAddressTo] = useState('');
+  const [coords, setCoords] = useState(null);
+  const [coordsTo, setCoordsTo] = useState(null);
   const [deliveryItem, setDeliveryItem] = useState('');
   const [deliveryFrom, setDeliveryFrom] = useState('');
   const [error, setError] = useState('');
@@ -15,6 +18,7 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
   const [messages, setMessages] = useState([]);
   const [messageText, setMessageText] = useState('');
   const [showChat, setShowChat] = useState(false);
+  const [showMap, setShowMap] = useState(null); // 'from' | 'to' | null
 
   const intervalRef = useRef(null);
   const msgIntervalRef = useRef(null);
@@ -34,7 +38,7 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
     return () => clearInterval(intervalRef.current);
   }, [authFetch]);
 
-  // Опрос сообщений активного заказа
+  // Опрос сообщений
   useEffect(() => {
     if (!activeOrder?.id || !showChat) return;
 
@@ -50,6 +54,34 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
     msgIntervalRef.current = setInterval(pollMessages, POLL_INTERVAL);
     return () => clearInterval(msgIntervalRef.current);
   }, [activeOrder?.id, showChat, authFetch]);
+
+  // Обратное геокодирование: координаты → адрес
+  const reverseGeocode = async (lat, lng) => {
+    try {
+      const res = await fetch(
+        `https://geocode-maps.yandex.ru/1.x/?apikey=${YANDEX_KEY}&geocode=${lng},${lat}&format=json&results=1&lang=ru_RU`
+      );
+      const data = await res.json();
+      const address = data.response.GeoObjectCollection.featureMember[0]?.GeoObject.metaDataProperty.GeocoderMetaData.text;
+      return address || '';
+    } catch (err) {
+      console.error(err);
+      return '';
+    }
+  };
+
+  const handleMapSelect = async (selected) => {
+    if (showMap === 'from') {
+      setCoords(selected);
+      const addr = await reverseGeocode(selected.lat, selected.lng);
+      if (addr) setAddress(addr);
+    } else if (showMap === 'to') {
+      setCoordsTo(selected);
+      const addr = await reverseGeocode(selected.lat, selected.lng);
+      if (addr) setAddressTo(addr);
+    }
+    setShowMap(null);
+  };
 
   const handleOrder = async (e) => {
     e.preventDefault();
@@ -80,6 +112,7 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
       setActiveOrder(data);
       setAddress(''); setAddressTo('');
       setDeliveryItem(''); setDeliveryFrom('');
+      setCoords(null); setCoordsTo(null);
     } catch (err) {
       setError('Ошибка соединения');
     }
@@ -127,71 +160,38 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
         {!activeOrder ? (
           <form className="order-form" onSubmit={handleOrder}>
             <div className="kind-toggle">
-              <button
-                type="button"
-                className={orderKind === 'taxi' ? 'active' : ''}
-                onClick={() => setOrderKind('taxi')}
-              >
-                🚖 Такси
-              </button>
-              <button
-                type="button"
-                className={orderKind === 'delivery' ? 'active' : ''}
-                onClick={() => setOrderKind('delivery')}
-              >
-                📦 Доставка
-              </button>
+              <button type="button" className={orderKind === 'taxi' ? 'active' : ''} onClick={() => setOrderKind('taxi')}>🚖 Такси</button>
+              <button type="button" className={orderKind === 'delivery' ? 'active' : ''} onClick={() => setOrderKind('delivery')}>📦 Доставка</button>
             </div>
 
             {orderKind === 'taxi' ? (
               <>
                 <label>Откуда
-                  <input
-                    type="text"
-                    value={address}
-                    onChange={(e) => setAddress(e.target.value)}
-                    placeholder="ул. Ленина 15"
-                    required
-                  />
+                  <div className="input-with-map">
+                    <input type="text" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="ул. Ленина 15" required />
+                    <button type="button" className="map-btn" onClick={() => setShowMap('from')} title="Выбрать на карте">📍</button>
+                  </div>
                 </label>
                 <label>Куда
-                  <input
-                    type="text"
-                    value={addressTo}
-                    onChange={(e) => setAddressTo(e.target.value)}
-                    placeholder="ул. Союзная 20"
-                    required
-                  />
+                  <div className="input-with-map">
+                    <input type="text" value={addressTo} onChange={(e) => setAddressTo(e.target.value)} placeholder="ул. Союзная 20" required />
+                    <button type="button" className="map-btn" onClick={() => setShowMap('to')} title="Выбрать на карте">📍</button>
+                  </div>
                 </label>
               </>
             ) : (
               <>
                 <label>Что доставить
-                  <input
-                    type="text"
-                    value={deliveryItem}
-                    onChange={(e) => setDeliveryItem(e.target.value)}
-                    placeholder="2 литра молока, хлеб"
-                    required
-                  />
+                  <input type="text" value={deliveryItem} onChange={(e) => setDeliveryItem(e.target.value)} placeholder="2 литра молока, хлеб" required />
                 </label>
                 <label>Из какого магазина
-                  <input
-                    type="text"
-                    value={deliveryFrom}
-                    onChange={(e) => setDeliveryFrom(e.target.value)}
-                    placeholder="Магнит на Ленина"
-                    required
-                  />
+                  <input type="text" value={deliveryFrom} onChange={(e) => setDeliveryFrom(e.target.value)} placeholder="Магнит на Ленина" required />
                 </label>
                 <label>Куда доставить
-                  <input
-                    type="text"
-                    value={addressTo}
-                    onChange={(e) => setAddressTo(e.target.value)}
-                    placeholder="ул. Союзная 20"
-                    required
-                  />
+                  <div className="input-with-map">
+                    <input type="text" value={addressTo} onChange={(e) => setAddressTo(e.target.value)} placeholder="ул. Союзная 20" required />
+                    <button type="button" className="map-btn" onClick={() => setShowMap('to')} title="Выбрать на карте">📍</button>
+                  </div>
                 </label>
               </>
             )}
@@ -227,14 +227,10 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
                 <div className="driver-title">🚗 Водитель</div>
                 <div className="driver-name">{activeOrder.driver_name}</div>
                 {activeOrder.car_model && (
-                  <div className="driver-car">
-                    {activeOrder.car_model} — {activeOrder.car_number}
-                  </div>
+                  <div className="driver-car">{activeOrder.car_model} — {activeOrder.car_number}</div>
                 )}
                 {activeOrder.driver_phone && (
-                  <a href={`tel:${activeOrder.driver_phone}`} className="driver-phone">
-                    📞 {activeOrder.driver_phone}
-                  </a>
+                  <a href={`tel:${activeOrder.driver_phone}`} className="driver-phone">📞 {activeOrder.driver_phone}</a>
                 )}
               </div>
             )}
@@ -243,17 +239,13 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
               <button className="btn-secondary" onClick={() => setShowChat(!showChat)}>
                 💬 {showChat ? 'Скрыть чат' : 'Написать диспетчеру'}
               </button>
-              <button className="btn-danger" onClick={handleCancel}>
-                ❌ Отменить заказ
-              </button>
+              <button className="btn-danger" onClick={handleCancel}>❌ Отменить заказ</button>
             </div>
 
             {showChat && (
               <div className="chat">
                 <div className="chat-messages">
-                  {messages.length === 0 && (
-                    <div className="chat-empty">Сообщений пока нет</div>
-                  )}
+                  {messages.length === 0 && <div className="chat-empty">Сообщений пока нет</div>}
                   {messages.map((m) => (
                     <div key={m.id} className={`msg msg-${m.sender_role}`}>
                       <div className="msg-author">{m.username}</div>
@@ -262,12 +254,7 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
                   ))}
                 </div>
                 <form className="chat-form" onSubmit={handleSendMessage}>
-                  <input
-                    type="text"
-                    value={messageText}
-                    onChange={(e) => setMessageText(e.target.value)}
-                    placeholder="Сообщение..."
-                  />
+                  <input type="text" value={messageText} onChange={(e) => setMessageText(e.target.value)} placeholder="Сообщение..." />
                   <button type="submit">➤</button>
                 </form>
               </div>
@@ -275,6 +262,14 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
           </div>
         )}
       </main>
+
+      {showMap && (
+        <MapPicker
+          initialCoords={showMap === 'from' ? coords : coordsTo}
+          onSelect={handleMapSelect}
+          onClose={() => setShowMap(null)}
+        />
+      )}
     </div>
   );
 }

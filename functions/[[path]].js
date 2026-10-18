@@ -7,7 +7,7 @@ app.use('*', cors({
   origin: [
     'http://localhost:5173',
     'https://taxi.my-money.site',
-    'https://taxi.pages.dev',
+    'https://taxi-9w7.pages.dev',
   ],
   credentials: true,
 }));
@@ -120,7 +120,7 @@ async function verifyJWT(token, secret) {
 
 function isNightTime() {
   const now = new Date();
-  const hour = (now.getUTCHours() + 5) % 24; // UTC+5 (Башкортостан)
+  const hour = (now.getUTCHours() + 5) % 24;
   return hour >= 0 && hour < 6;
 }
 
@@ -151,12 +151,57 @@ async function adminRequired(c, next) {
 }
 
 // ============================================================
+// ОПРЕДЕЛЕНИЕ ЦЕНЫ — РЕГИСТРОНЕЗАВИСИМО (UTF-8 SAFE)
+// ============================================================
+
+async function calculatePrice(db, address) {
+  if (!address) return { price: 0, type: 'local', found: false };
+
+  // Нормализуем адрес: lowercase, только буквы/цифры/пробелы
+  const normalized = address.toLowerCase().replace(/[^а-яёa-z0-9\s]/gi, ' ');
+  const words = normalized.split(/\s+/).filter(w => w.length >= 3);
+
+  if (words.length === 0) return { price: 0, type: 'local', found: false };
+
+  // 1. Населённые пункты — тянем все, сравниваем в JS (UTF-8 безопасно)
+  const locResult = await db.prepare(
+    'SELECT keyword, display_name, price FROM taxi_locations'
+  ).all();
+  for (const loc of (locResult.results || [])) {
+    const kw = loc.keyword.toLowerCase();
+    if (words.some(w => w === kw || w.includes(kw) || kw.includes(w))) {
+      return { price: loc.price, type: 'long', found: true, matched: loc.display_name };
+    }
+  }
+
+  // 2. Улицы — тоже самое
+  const stResult = await db.prepare(
+    'SELECT keyword, display_name, price FROM taxi_streets'
+  ).all();
+  for (const st of (stResult.results || [])) {
+    const kw = st.keyword.toLowerCase();
+    if (words.some(w => w === kw || w.includes(kw) || kw.includes(w))) {
+      return { price: st.price, type: 'local', found: true, matched: st.display_name };
+    }
+  }
+
+  return { price: 0, type: 'local', found: false };
+}
+
+// ============================================================
 // ПРОВЕРКА
 // ============================================================
 
 app.get('/api/ping', async (c) => {
   const result = await c.env.DB.prepare('SELECT datetime("now") AS now').first();
   return c.json({ ok: true, time: result.now });
+});
+
+// Тест определения цены
+app.post('/api/test-price', async (c) => {
+  const { address } = await c.req.json();
+  const result = await calculatePrice(c.env.DB, address);
+  return c.json(result);
 });
 
 // ============================================================
@@ -273,37 +318,6 @@ app.post('/api/auth/change-password', authRequired, async (c) => {
 });
 
 // ============================================================
-// ОПРЕДЕЛЕНИЕ ЦЕНЫ
-// ============================================================
-
-async function calculatePrice(db, address) {
-  if (!address) return { price: 0, type: 'local', found: false };
-
-  const words = address.toLowerCase()
-    .replace(/[^а-яёa-z0-9\s]/gi, ' ')
-    .split(/\s+/)
-    .filter(w => w.length >= 3);
-
-  // 1. Населённые пункты
-  for (const word of words) {
-    const loc = await db.prepare(
-      'SELECT price, display_name FROM taxi_locations WHERE LOWER(keyword) = ?'
-    ).bind(word).first();
-    if (loc) return { price: loc.price, type: 'long', found: true, matched: loc.display_name };
-  }
-
-  // 2. Улицы
-  for (const word of words) {
-    const street = await db.prepare(
-      'SELECT price, display_name FROM taxi_streets WHERE LOWER(keyword) = ?'
-    ).bind(word).first();
-    if (street) return { price: street.price, type: 'local', found: true, matched: street.display_name };
-  }
-
-  return { price: 0, type: 'local', found: false };
-}
-
-// ============================================================
 // ЗАКАЗЫ — КЛИЕНТ
 // ============================================================
 
@@ -318,7 +332,9 @@ app.post('/api/orders', authRequired, async (c) => {
     if (order_kind === 'delivery' && (!delivery_item || !delivery_from)) return c.json({ error: 'Введите что и откуда доставить' }, 400);
 
     const priceInfo = await calculatePrice(c.env.DB, address_to);
-    if (!priceInfo.found) return c.json({ error: 'Не могу определить цену по адресу. Обратитесь к оператору.' }, 400);
+    if (!priceInfo.found) {
+      return c.json({ error: 'Не могу определить цену по адресу. Обратитесь к оператору.' }, 400);
+    }
 
     let finalPrice = priceInfo.price;
     if (isNightTime() && priceInfo.type === 'long') finalPrice += 100;
@@ -341,7 +357,7 @@ app.post('/api/orders', authRequired, async (c) => {
 
     return c.json(result);
   } catch (err) {
-    console.error('ORDER CREATE ERROR:', err.message);
+    console.error('ORDER CREATE ERROR:', err.message, err.stack);
     return c.json({ error: 'Ошибка создания заказа' }, 500);
   }
 });
@@ -402,6 +418,7 @@ app.post('/api/driver/delivery', authRequired, async (c) => {
 app.get('/api/driver/my-order', authRequired, async (c) => {
   if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
 
+  // Сначала активный
   let order = await c.env.DB.prepare(
     `SELECT o.*, u.username AS client_name, u.phone AS client_phone
      FROM taxi_orders o JOIN taxi_users u ON u.id = o.client_id
@@ -411,6 +428,7 @@ app.get('/api/driver/my-order', authRequired, async (c) => {
 
   if (order) return c.json({ order, type: 'active' });
 
+  // Потом назначенный (pending + assigned_to = me)
   order = await c.env.DB.prepare(
     `SELECT o.*, u.username AS client_name, u.phone AS client_phone
      FROM taxi_orders o JOIN taxi_users u ON u.id = o.client_id
@@ -419,6 +437,35 @@ app.get('/api/driver/my-order', authRequired, async (c) => {
   ).bind(c.get('userId')).first();
 
   if (order) return c.json({ order, type: 'assigned' });
+
+  // Если ничего не назначено — но водитель на смене — берём первый свободный pending
+  // (упрощённая очередь без атомарного назначения через cron)
+  const me = await c.env.DB.prepare(
+    'SELECT is_on_shift FROM taxi_users WHERE id = ?'
+  ).bind(c.get('userId')).first();
+
+  if (me?.is_on_shift) {
+    // Проверяем, что я первый в очереди
+    const firstInQueue = await c.env.DB.prepare(
+      `SELECT id FROM taxi_users 
+       WHERE role = 'driver' AND is_on_shift = 1 
+       ORDER BY queue_position ASC LIMIT 1`
+    ).first();
+
+    if (firstInQueue?.id === c.get('userId')) {
+      const freeOrder = await c.env.DB.prepare(
+        `SELECT o.*, u.username AS client_name, u.phone AS client_phone
+         FROM taxi_orders o JOIN taxi_users u ON u.id = o.client_id
+         WHERE o.status = 'pending' AND o.assigned_to IS NULL
+         ORDER BY o.created_at ASC LIMIT 1`
+      ).first();
+
+      if (freeOrder) {
+        return c.json({ order: freeOrder, type: 'assigned' });
+      }
+    }
+  }
+
   return c.json({ order: null, type: 'idle' });
 });
 
@@ -428,15 +475,17 @@ app.post('/api/orders/:id/accept', authRequired, async (c) => {
   const orderId = c.req.param('id');
   const driverId = c.get('userId');
 
+  // Атомарное принятие — заказ должен быть pending и без водителя
   const result = await c.env.DB.prepare(
     `UPDATE taxi_orders
      SET driver_id = ?, status = 'accepted', accepted_at = datetime('now'), assigned_to = NULL
-     WHERE id = ? AND status = 'pending' AND assigned_to = ?
+     WHERE id = ? AND status = 'pending' AND driver_id IS NULL
      RETURNING *`
-  ).bind(driverId, orderId, driverId).first();
+  ).bind(driverId, orderId).first();
 
-  if (!result) return c.json({ error: 'Заказ уже принят или не назначен вам' }, 409);
+  if (!result) return c.json({ error: 'Заказ уже принят другим водителем' }, 409);
 
+  // Водитель — в конец очереди
   const max = await c.env.DB.prepare(
     'SELECT COALESCE(MAX(queue_position), 0) AS max_pos FROM taxi_users WHERE role = ? AND is_on_shift = 1'
   ).bind('driver').first();
