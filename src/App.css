@@ -118,6 +118,8 @@ body {
    ============================================ */
 .cabinet {
   min-height: 100vh; padding: 20px; max-width: 800px; margin: 0 auto;
+  /* Жёсткий отступ сверху для PWA */
+  padding-top: max(60px, env(safe-area-inset-top));
 }
 .cabinet-header {
   display: flex; justify-content: space-between; align-items: center;
@@ -164,6 +166,7 @@ body {
    ============================================ */
 .modal-overlay, .map-modal-overlay {
   position: fixed; inset: 0; background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; padding: 20px; z-index: 1000;
+  padding-top: max(20px, env(safe-area-inset-top));
 }
 .settings-modal { width: 100%; max-width: 500px; max-height: 90vh; overflow-y: auto; background: var(--black-card); border: 1px solid var(--border); border-radius: 20px; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
 .settings-header { display: flex; justify-content: space-between; align-items: center; }
@@ -174,16 +177,29 @@ body {
 .settings-tabs button.active { background: var(--yellow); color: var(--black); }
 .settings-section { display: flex; flex-direction: column; gap: 12px; }
 .settings-section h3 { color: var(--text); font-size: 16px; margin-bottom: 4px; }
-.avatar-preview, .car-photo-preview { width: 100px; height: 100px; border-radius: 50%; object-fit: cover; border: 2px solid var(--yellow); align-self: center; }
-.car-photo-preview { border-radius: 12px; width: 100%; height: 150px; }
-.avatar-placeholder, .car-placeholder { width: 100px; height: 100px; border-radius: 50%; background: var(--black); display: flex; align-items: center; justify-content: center; font-size: 40px; border: 2px dashed var(--border); align-self: center; }
-.car-placeholder { border-radius: 12px; width: 100%; height: 150px; }
 .settings-footer { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--border); display: flex; justify-content: center; }
 .settings-error { color: #ff6b6b; font-size: 13px; text-align: center; }
 .settings-success { color: #66bb6a; font-size: 13px; text-align: center; }
 
 /* ============================================
-   SWIPEABLE ITEM (Свайпы)
+   MAP PICKER (Исправленный)
+   ============================================ */
+.map-modal {
+  width: 100%; max-width: 800px; height: 80vh; max-height: 700px;
+  background: var(--black-card); border: 1px solid var(--border); border-radius: 20px; padding: 20px;
+  display: flex; flex-direction: column; gap: 16px;
+}
+.map-modal-header { display: flex; justify-content: space-between; align-items: center; }
+.map-modal-header h3 { font-size: 18px; color: var(--yellow); font-weight: 700; }
+.map-modal-close { background: transparent; border: 1px solid var(--border); color: var(--text-soft); width: 36px; height: 36px; border-radius: 10px; cursor: pointer; font-size: 16px; }
+.map-container { flex: 1; border-radius: 12px; overflow: hidden; background: #333; min-height: 300px; width: 100%; display: block; }
+.map-modal-footer { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.map-coords { font-size: 12px; color: var(--text-soft); font-family: monospace; }
+.map-buttons { display: flex; gap: 10px; margin-left: auto; }
+.map-buttons button { min-width: 120px; min-height: 46px; }
+
+/* ============================================
+   SWIPEABLE ITEM
    ============================================ */
 .swipe-container { position: relative; overflow: hidden; border-radius: 14px; margin-bottom: 10px; }
 .swipe-content { background: var(--black-card); border: 1px solid var(--border); padding: 16px; border-radius: 14px; transition: transform 0.3s ease; position: relative; z-index: 2; touch-action: pan-y; }
@@ -227,11 +243,14 @@ body {
 .chat-form button { width: 46px; height: 46px; border-radius: 50%; background: var(--yellow); color: var(--black); font-weight: 700; cursor: pointer; border: none; }
 
 @media (max-width: 480px) {
-  .cabinet { padding: 16px 14px 40px; }
+  .cabinet { padding: 16px 14px 40px; padding-top: max(60px, env(safe-area-inset-top)); }
   .cabinet-header h1 { font-size: 22px; }
   .driver-panel { grid-template-columns: 1fr; }
   .queue-info { grid-column: span 1; }
   .order-actions { flex-direction: column; }
   .settings-modal { padding: 18px; }
-  .avatar-preview, .car-photo-preview { max-width: 100%; }
+  .map-modal { height: 90vh; padding: 16px; }
+  .map-modal-footer { flex-direction: column; align-items: stretch; }
+  .map-buttons { margin-left: 0; }
+  .map-buttons button { flex: 1; }
 }

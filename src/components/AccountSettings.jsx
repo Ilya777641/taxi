@@ -8,21 +8,12 @@ function AccountSettings({ user, token, authFetch, onClose, onLogout, onUpdate }
   const [newUsername, setNewUsername] = useState(user.username);
   const [carModel, setCarModel] = useState(user.car_model || '');
   const [carNumber, setCarNumber] = useState(user.car_number || '');
+  
   const [avatarFile, setAvatarFile] = useState(null);
   const [carPhotoFile, setCarPhotoFile] = useState(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
-
-  // Функция для конвертации файла в Base64 (для отправки на бэкенд)
-  const fileToBase64 = (file) => {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.readAsDataURL(file);
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = error => reject(error);
-    });
-  };
 
   const handleChangePassword = async (e) => {
     e.preventDefault();
@@ -75,40 +66,59 @@ function AccountSettings({ user, token, authFetch, onClose, onLogout, onUpdate }
     setLoading(false);
   };
 
-  const handleUploadAvatar = async () => {
-    if (!avatarFile) return;
-    setError(''); setSuccess('');
-    setLoading(true);
-    try {
-      const base64 = await fileToBase64(avatarFile);
-      const res = await authFetch('/api/auth/avatar', {
-        method: 'POST',
-        body: JSON.stringify({ image: base64 }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      setSuccess('Аватарка обновлена');
-      onUpdate({ ...user, avatar_url: data.avatar_url });
-    } catch (err) { setError(err.message); }
-    setLoading(false);
-  };
-
+  // Загрузка фото машины в R2
   const handleUploadCarPhoto = async () => {
     if (!carPhotoFile) return;
     setError(''); setSuccess('');
     setLoading(true);
     try {
-      const base64 = await fileToBase64(carPhotoFile);
-      const res = await authFetch('/api/driver/car-photo', {
+      const formData = new FormData();
+      formData.append('photo', carPhotoFile); // Отправляем файл как form-data
+
+      const res = await fetch(`${API_URL}/api/driver/car-photo`, {
         method: 'POST',
-        body: JSON.stringify({ image: base64 }),
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData, // fetch сам выставит Content-Type multipart/form-data
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
+      
       setSuccess('Фото машины обновлено');
       onUpdate({ ...user, car_photo_url: data.car_photo_url });
     } catch (err) { setError(err.message); }
     setLoading(false);
+  };
+
+  // Загрузка аватарки (можно оставить Base64 для D1, если не хочешь R2, но лучше тоже в R2)
+  // Пока оставим Base64, но с проверкой размера
+  const handleUploadAvatar = async () => {
+    if (!avatarFile) return;
+    setError(''); setSuccess('');
+    setLoading(true);
+    try {
+      const reader = new FileReader();
+      reader.readAsDataURL(avatarFile);
+      reader.onload = async () => {
+        const base64 = reader.result;
+        // Проверка размера (не больше 500KB)
+        if (base64.length > 500000) {
+          setError('Аватарка слишком большая (макс 500КБ)');
+          setLoading(false);
+          return;
+        }
+
+        const res = await authFetch('/api/auth/avatar', {
+          method: 'POST',
+          body: JSON.stringify({ image: base64 }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        
+        setSuccess('Аватарка обновлена');
+        onUpdate({ ...user, avatar_url: data.avatar_url });
+        setLoading(false);
+      };
+    } catch (err) { setError(err.message); setLoading(false); }
   };
 
   return (
@@ -121,7 +131,7 @@ function AccountSettings({ user, token, authFetch, onClose, onLogout, onUpdate }
 
         <div className="settings-tabs">
           <button className={tab === 'profile' ? 'active' : ''} onClick={() => setTab('profile')}>Профиль</button>
-          <button className={tab === 'security' ? 'active' : ''} onClick={() => setTab('security')}>Безопасность</button>
+          <button className={tab === 'security' ? 'active' : ''} onClick={() => setTab('security')}>Пароль</button>
           {user.role === 'driver' && (
             <button className={tab === 'car' ? 'active' : ''} onClick={() => setTab('car')}>Машина</button>
           )}
@@ -143,7 +153,9 @@ function AccountSettings({ user, token, authFetch, onClose, onLogout, onUpdate }
             <h3 style={{ marginTop: '24px' }}>Смена логина</h3>
             <form onSubmit={handleChangeUsername}>
               <input type="text" value={newUsername} onChange={(e) => setNewUsername(e.target.value)} required />
-              <button type="submit" className="btn-primary" disabled={loading}>Сохранить логин</button>
+              <button type="submit" className="btn-primary" disabled={loading} style={{ width: '100%', marginTop: '10px' }}>
+                Сохранить логин
+              </button>
             </form>
           </div>
         )}
@@ -160,7 +172,9 @@ function AccountSettings({ user, token, authFetch, onClose, onLogout, onUpdate }
                 <input type="text" inputMode="numeric" maxLength={4} value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value.replace(/\D/g, '').slice(0, 4))} required />
               </label>
-              <button type="submit" className="btn-primary" disabled={loading}>Сменить пароль</button>
+              <button type="submit" className="btn-primary" disabled={loading} style={{ width: '100%', marginTop: '10px' }}>
+                Сменить пароль
+              </button>
             </form>
           </div>
         )}
@@ -175,17 +189,19 @@ function AccountSettings({ user, token, authFetch, onClose, onLogout, onUpdate }
               <label>Номер
                 <input type="text" value={carNumber} onChange={(e) => setCarNumber(e.target.value)} required />
               </label>
-              <button type="submit" className="btn-primary" disabled={loading}>Сохранить</button>
+              <button type="submit" className="btn-primary" disabled={loading} style={{ width: '100%', marginTop: '10px' }}>
+                Сохранить данные
+              </button>
             </form>
 
             <h3 style={{ marginTop: '24px' }}>Фото машины</h3>
             {user.car_photo_url ? (
-              <img src={user.car_photo_url} alt="car" className="car-photo-preview" />
+              <img src={`${API_URL}${user.car_photo_url}`} alt="car" className="car-photo-preview" />
             ) : (
               <div className="car-placeholder">🚗</div>
             )}
             <input type="file" accept="image/*" onChange={(e) => setCarPhotoFile(e.target.files[0])} />
-            <button className="btn-primary" onClick={handleUploadCarPhoto} disabled={loading || !carPhotoFile}>
+            <button className="btn-primary" onClick={handleUploadCarPhoto} disabled={loading || !carPhotoFile} style={{ width: '100%', marginTop: '10px' }}>
               Загрузить фото
             </button>
           </div>

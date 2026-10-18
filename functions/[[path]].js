@@ -8,10 +8,43 @@ app.use('*', cors({
   credentials: true,
 }));
 
-function base64UrlEncode(str) { const bytes = new TextEncoder().encode(str); let binary = ''; for (const b of bytes) binary += String.fromCharCode(b); return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
-function base64UrlDecode(b64url) { const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/'); const padded = b64 + '='.repeat((4 - b64.length % 4) % 4); const binary = atob(padded); const bytes = new Uint8Array(binary.length); for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i); return new TextDecoder().decode(bytes); }
-async function hashPassword(password) { const data = new TextEncoder().encode(password + 'taxi_salt_v1'); const hashBuffer = await crypto.subtle.digest('SHA-256', data); return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join(''); }
-async function verifyPassword(password, hash) { return (await hashPassword(password)) === hash; }
+// ============================================================
+// BASE64URL — UTF-8 SAFE
+// ============================================================
+
+function base64UrlEncode(str) {
+  const bytes = new TextEncoder().encode(str);
+  let binary = '';
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function base64UrlDecode(b64url) {
+  const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = b64 + '='.repeat((4 - b64.length % 4) % 4);
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+
+// ============================================================
+// ПАРОЛЬ — SHA-256
+// ============================================================
+
+async function hashPassword(password) {
+  const data = new TextEncoder().encode(password + 'taxi_salt_v1');
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function verifyPassword(password, hash) {
+  return (await hashPassword(password)) === hash;
+}
+
+// ============================================================
+// JWT — UTF-8 SAFE
+// ============================================================
 
 async function createJWT(payload, secret) {
   const header = { alg: 'HS256', typ: 'JWT' };
@@ -41,7 +74,15 @@ async function verifyJWT(token, secret) {
   } catch { return null; }
 }
 
-function isNightTime() { const now = new Date(); const hour = (now.getUTCHours() + 5) % 24; return hour >= 0 && hour < 6; }
+function isNightTime() {
+  const now = new Date();
+  const hour = (now.getUTCHours() + 5) % 24;
+  return hour >= 0 && hour < 6;
+}
+
+// ============================================================
+// MIDDLEWARE
+// ============================================================
 
 async function authRequired(c, next) {
   const authHeader = c.req.header('Authorization');
@@ -54,7 +95,14 @@ async function authRequired(c, next) {
   await next();
 }
 
-async function adminRequired(c, next) { if (c.get('role') !== 'admin') return c.json({ error: 'Доступ запрещён' }, 403); await next(); }
+async function adminRequired(c, next) {
+  if (c.get('role') !== 'admin') return c.json({ error: 'Доступ запрещён' }, 403);
+  await next();
+}
+
+// ============================================================
+// ОПРЕДЕЛЕНИЕ ЦЕНЫ
+// ============================================================
 
 async function calculatePrice(db, address) {
   if (!address) return { price: 0, type: 'local', found: false };
@@ -80,11 +128,18 @@ async function calculatePrice(db, address) {
   return { price: 0, type: 'local', found: false };
 }
 
-app.get('/api/ping', async (c) => { const result = await c.env.DB.prepare('SELECT datetime("now") AS now').first(); return c.json({ ok: true, time: result.now }); });
+// ============================================================
+// ПРОВЕРКА
+// ============================================================
 
-// ============================================
-// АВТОРИЗАЦИЯ И НАСТРОЙКИ ПРОФИЛЯ
-// ============================================
+app.get('/api/ping', async (c) => {
+  const result = await c.env.DB.prepare('SELECT datetime("now") AS now').first();
+  return c.json({ ok: true, time: result.now });
+});
+
+// ============================================================
+// АВТОРИЗАЦИЯ И НАСТРОЙКИ
+// ============================================================
 
 app.post('/api/auth/register', async (c) => {
   try {
@@ -151,14 +206,6 @@ app.post('/api/auth/change-username', authRequired, async (c) => {
   } catch (err) { return c.json({ error: 'Ошибка' }, 500); }
 });
 
-app.post('/api/auth/avatar', authRequired, async (c) => {
-  try {
-    const { image } = await c.req.json(); // Base64
-    await c.env.DB.prepare('UPDATE taxi_users SET avatar_url = ? WHERE id = ?').bind(image, c.get('userId')).run();
-    return c.json({ success: true, avatar_url: image });
-  } catch (err) { return c.json({ error: 'Ошибка' }, 500); }
-});
-
 app.post('/api/driver/car', authRequired, async (c) => {
   if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
   try {
@@ -168,18 +215,50 @@ app.post('/api/driver/car', authRequired, async (c) => {
   } catch (err) { return c.json({ error: 'Ошибка' }, 500); }
 });
 
+// ============================================================
+// R2: ФОТО МАШИНЫ
+// ============================================================
+
 app.post('/api/driver/car-photo', authRequired, async (c) => {
   if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
   try {
-    const { image } = await c.req.json();
-    await c.env.DB.prepare('UPDATE taxi_users SET car_photo_url = ? WHERE id = ?').bind(image, c.get('userId')).run();
-    return c.json({ success: true, car_photo_url: image });
-  } catch (err) { return c.json({ error: 'Ошибка' }, 500); }
+    const formData = await c.req.formData();
+    const file = formData.get('photo');
+    
+    if (!file || !(file instanceof File)) return c.json({ error: 'Файл не найден' }, 400);
+
+    const ext = file.name.split('.').pop() || 'jpg';
+    const key = `car_${c.get('userId')}_${Date.now()}.${ext}`;
+
+    await c.env.CARS_BUCKET.put(key, file.stream(), {
+      httpMetadata: { contentType: file.type },
+    });
+
+    const photoUrl = `/api/car-photo/${key}`;
+    await c.env.DB.prepare('UPDATE taxi_users SET car_photo_url = ? WHERE id = ?').bind(photoUrl, c.get('userId')).run();
+
+    return c.json({ success: true, car_photo_url: photoUrl });
+  } catch (err) {
+    console.error('CAR PHOTO UPLOAD ERROR:', err.message, err.stack);
+    return c.json({ error: 'Ошибка загрузки фото' }, 500);
+  }
 });
 
-// ============================================
+app.get('/api/car-photo/:key', async (c) => {
+  const key = c.req.param('key');
+  const object = await c.env.CARS_BUCKET.get(key);
+  if (!object) return c.json({ error: 'Фото не найдено' }, 404);
+  return new Response(object.body, {
+    headers: {
+      'Content-Type': object.httpMetadata?.contentType || 'image/jpeg',
+      'Cache-Control': 'public, max-age=31536000',
+    },
+  });
+});
+
+// ============================================================
 // ЗАКАЗЫ (КЛИЕНТ)
-// ============================================
+// ============================================================
 
 app.post('/api/orders', authRequired, async (c) => {
   try {
@@ -215,9 +294,9 @@ app.post('/api/orders/:id/cancel', authRequired, async (c) => {
   return c.json(result);
 });
 
-// ============================================
+// ============================================================
 // ЗАКАЗЫ (ВОДИТЕЛЬ)
-// ============================================
+// ============================================================
 
 app.post('/api/driver/shift', authRequired, async (c) => {
   if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
@@ -303,9 +382,9 @@ app.post('/api/orders/:id/status', authRequired, async (c) => {
   return c.json(result);
 });
 
-// ============================================
+// ============================================================
 // ЧАТ
-// ============================================
+// ============================================================
 
 app.get('/api/orders/:id/messages', authRequired, async (c) => {
   const messages = await c.env.DB.prepare(`SELECT m.*, u.username FROM taxi_messages m JOIN taxi_users u ON u.id = m.sender_id WHERE m.order_id = ? ORDER BY m.created_at ASC`).bind(c.req.param('id')).all();
@@ -319,9 +398,9 @@ app.post('/api/orders/:id/messages', authRequired, async (c) => {
   return c.json(result);
 });
 
-// ============================================
+// ============================================================
 // АДМИН
-// ============================================
+// ============================================================
 
 app.get('/api/admin/orders', authRequired, adminRequired, async (c) => {
   const orders = await c.env.DB.prepare(

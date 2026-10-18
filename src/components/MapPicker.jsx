@@ -16,58 +16,50 @@ function MapPicker({ initialCoords, onSelect, onClose }) {
       }
 
       window.ymaps.ready(() => {
-        if (!mapRef.current) return;
+        // Даем React время отрендерить контейнер
+        setTimeout(() => {
+          if (!mapRef.current) return;
 
-        // Уничтожаем старую карту, если она была (на всякий случай)
-        if (mapInstance) {
-          mapInstance.destroy();
-        }
+          if (mapInstance) mapInstance.destroy();
 
-        mapInstance = new window.ymaps.Map(mapRef.current, {
-          center: coords,
-          zoom: 15,
-          controls: ['zoomControl', 'fullscreenControl'],
-        });
+          mapInstance = new window.ymaps.Map(mapRef.current, {
+            center: coords,
+            zoom: 15,
+            controls: ['zoomControl', 'fullscreenControl'],
+          });
 
-        placemark = new window.ymaps.Placemark(coords, {}, {
-          preset: 'islands#yellowDotIcon',
-          draggable: true,
-        });
-        mapInstance.geoObjects.add(placemark);
+          placemark = new window.ymaps.Placemark(coords, {}, {
+            preset: 'islands#yellowDotIcon',
+            draggable: true,
+          });
+          mapInstance.geoObjects.add(placemark);
 
-        mapInstance.events.add('click', (e) => {
-          const newCoords = e.get('coords');
-          placemark.geometry.setCoordinates(newCoords);
-          setCoords(newCoords);
-        });
+          mapInstance.events.add('click', (e) => {
+            const newCoords = e.get('coords');
+            placemark.geometry.setCoordinates(newCoords);
+            setCoords(newCoords);
+          });
 
-        placemark.events.add('dragend', () => {
-          setCoords(placemark.geometry.getCoordinates());
-        });
+          placemark.events.add('dragend', () => {
+            setCoords(placemark.geometry.getCoordinates());
+          });
 
-        setMapReady(true);
+          setMapReady(true);
+        }, 300); // Задержка 300мс для прогрузки контейнера
       });
     };
 
     initMap();
 
-    // Очистка при закрытии модалки
     return () => {
-      if (mapInstance) {
-        mapInstance.destroy();
-      }
-      if (mapRef.current) {
-        mapRef.current.innerHTML = '';
-      }
+      if (mapInstance) mapInstance.destroy();
+      if (mapRef.current) mapRef.current.innerHTML = '';
       setMapReady(false);
     };
-  }, []); // Пустой массив, чтобы инициализация была один раз
+  }, []);
 
   const handleConfirm = () => {
-    onSelect({
-      lat: coords[0],
-      lng: coords[1],
-    });
+    onSelect({ lat: coords[0], lng: coords[1] });
     if (onClose) onClose();
   };
 
