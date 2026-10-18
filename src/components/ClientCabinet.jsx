@@ -200,7 +200,17 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
                 <div className="driver-title">🚗 Водитель</div>
                 <div className="driver-name">{activeOrder.driver_name}</div>
                 {activeOrder.car_model && <div className="driver-car">{activeOrder.car_model} — {activeOrder.car_number}</div>}
-                {activeOrder.car_photo_url && <img src={activeOrder.car_photo_url} alt="car" className="car-photo-preview" style={{ height: '100px', width: '100%', objectFit: 'cover', marginTop: '10px' }} />}
+                
+                {/* ИСПРАВЛЕННАЯ СТРОКА ЗДЕСЬ: */}
+                {activeOrder.car_photo_url && (
+                  <img 
+                    src={`${API_URL}${activeOrder.car_photo_url}`} 
+                    alt="car" 
+                    className="car-photo-preview" 
+                    style={{ height: '120px', width: '100%', objectFit: 'cover', marginTop: '10px', borderRadius: '10px' }} 
+                  />
+                )}
+
                 {activeOrder.driver_phone && <a href={`tel:${activeOrder.driver_phone}`} className="driver-phone" style={{ marginTop: '10px', display: 'inline-block' }}>📞 {activeOrder.driver_phone}</a>}
               </div>
             )}
