@@ -103,7 +103,7 @@ function AuthPage({ onLogin }) {
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="Например, Илья"
+              placeholder="Введите имя"  // <- Убрали "Например, Илья"
               maxLength={30}
               required
             />
@@ -148,7 +148,7 @@ function AuthPage({ onLogin }) {
                   type="tel"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  placeholder="+7 XXX XXX-XX-XX"
+                  placeholder="Номер телефона" // <- Поменяли на понятный текст
                 />
               </label>
 
@@ -160,7 +160,7 @@ function AuthPage({ onLogin }) {
                       type="text"
                       value={carModel}
                       onChange={(e) => setCarModel(e.target.value)}
-                      placeholder="Lada Granta"
+                      placeholder="Марка" // <- Убрали "Lada Granta"
                       required
                     />
                   </label>
@@ -171,7 +171,7 @@ function AuthPage({ onLogin }) {
                       type="text"
                       value={carNumber}
                       onChange={(e) => setCarNumber(e.target.value)}
-                      placeholder="А123БВ"
+                      placeholder="Госномер" // <- Убрали "А123БВ"
                       required
                     />
                   </label>
