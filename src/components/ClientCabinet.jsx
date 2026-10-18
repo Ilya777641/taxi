@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
-import { API_URL, YANDEX_KEY, YANDEX_GEO_KEY } from '../config';
+import { API_URL, YANDEX_GEO_KEY } from '../config';
 import MapPicker from './MapPicker';
+import AccountSettings from './AccountSettings';
 
 const POLL_INTERVAL = 3000;
 
@@ -19,11 +20,12 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
   const [messageText, setMessageText] = useState('');
   const [showChat, setShowChat] = useState(false);
   const [showMap, setShowMap] = useState(null);
+  const [showSettings, setShowSettings] = useState(false);
+  const [currentUser, setCurrentUser] = useState(user);
 
   const intervalRef = useRef(null);
   const msgIntervalRef = useRef(null);
 
-  // Опрос активного заказа
   useEffect(() => {
     const poll = async () => {
       try {
@@ -32,43 +34,30 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
         setActiveOrder(data);
       } catch (err) {}
     };
-
     poll();
     intervalRef.current = setInterval(poll, POLL_INTERVAL);
     return () => clearInterval(intervalRef.current);
   }, [authFetch]);
 
-  // Опрос сообщений
   useEffect(() => {
     if (!activeOrder?.id || !showChat) return;
-
     const pollMessages = async () => {
       try {
         const res = await authFetch(`/api/orders/${activeOrder.id}/messages`);
-        const data = await res.json();
-        setMessages(data);
+        setMessages(await res.json());
       } catch (err) {}
     };
-
     pollMessages();
     msgIntervalRef.current = setInterval(pollMessages, POLL_INTERVAL);
     return () => clearInterval(msgIntervalRef.current);
   }, [activeOrder?.id, showChat, authFetch]);
 
-  // Обратное геокодирование: координаты → адрес
   const reverseGeocode = async (lat, lng) => {
     try {
-      const res = await fetch(
-        `https://geocode-maps.yandex.ru/1.x/?apikey=${YANDEX_GEO_KEY}&geocode=${lng},${lat}&format=json&results=1&lang=ru_RU`
-      );
+      const res = await fetch(`https://geocode-maps.yandex.ru/1.x/?apikey=${YANDEX_GEO_KEY}&geocode=${lng},${lat}&format=json&results=1&lang=ru_RU`);
       const data = await res.json();
-      const address =
-        data.response?.GeoObjectCollection?.featureMember[0]?.GeoObject?.metaDataProperty?.GeocoderMetaData?.text;
-      return address || '';
-    } catch (err) {
-      console.error('Geocode error:', err);
-      return '';
-    }
+      return data.response?.GeoObjectCollection?.featureMember[0]?.GeoObject?.metaDataProperty?.GeocoderMetaData?.text || '';
+    } catch { return ''; }
   };
 
   const handleMapSelect = async (selected) => {
@@ -88,7 +77,6 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
     e.preventDefault();
     setError('');
     setLoading(true);
-
     try {
       const body = {
         order_kind: orderKind,
@@ -97,31 +85,17 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
         delivery_item: orderKind === 'delivery' ? deliveryItem : null,
         delivery_from: orderKind === 'delivery' ? deliveryFrom : null,
       };
-
-      const res = await authFetch('/api/orders', {
-        method: 'POST',
-        body: JSON.stringify(body),
-      });
-
+      const res = await authFetch('/api/orders', { method: 'POST', body: JSON.stringify(body) });
       const data = await res.json();
-      if (!res.ok) {
-        setError(data.error || 'Ошибка создания заказа');
-        setLoading(false);
-        return;
-      }
-
+      if (!res.ok) throw new Error(data.error);
       setActiveOrder(data);
-      setAddress(''); setAddressTo('');
-      setDeliveryItem(''); setDeliveryFrom('');
-      setCoords(null); setCoordsTo(null);
-    } catch (err) {
-      setError('Ошибка соединения');
-    }
+      setAddress(''); setAddressTo(''); setDeliveryItem(''); setDeliveryFrom('');
+    } catch (err) { setError(err.message); }
     setLoading(false);
   };
 
   const handleCancel = async () => {
-    if (!confirm('Отменить заказ?')) return;
+    if (!window.confirm('Отменить заказ?')) return;
     try {
       await authFetch(`/api/orders/${activeOrder.id}/cancel`, { method: 'POST' });
       setActiveOrder(null);
@@ -132,21 +106,13 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
     e.preventDefault();
     if (!messageText.trim()) return;
     try {
-      await authFetch(`/api/orders/${activeOrder.id}/messages`, {
-        method: 'POST',
-        body: JSON.stringify({ text: messageText }),
-      });
+      await authFetch(`/api/orders/${activeOrder.id}/messages`, { method: 'POST', body: JSON.stringify({ text: messageText }) });
       setMessageText('');
     } catch (err) {}
   };
 
   const getStatusLabel = (status) => {
-    const map = {
-      pending: '⏳ Ищем водителя',
-      accepted: '✅ Водитель принял заказ',
-      on_way: '🚗 Водитель в пути',
-      waiting: '⏰ Водитель ожидает',
-    };
+    const map = { pending: '⏳ Ищем водителя', accepted: '✅ Водитель принял', on_way: '🚗 Водитель в пути', waiting: '⏰ Водитель ожидает' };
     return map[status] || status;
   };
 
@@ -154,7 +120,14 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
     <div className="cabinet">
       <header className="cabinet-header">
         <h1>🚖 Такси</h1>
-        <button className="logout-btn" onClick={onLogout}>{user.username} ↪</button>
+        <div className="header-actions">
+          <button className="settings-btn" onClick={() => setShowSettings(true)}>⚙️</button>
+          {currentUser.avatar_url ? (
+            <img src={currentUser.avatar_url} className="avatar-small" alt="avatar" />
+          ) : (
+            <div className="avatar-small">{currentUser.username[0]}</div>
+          )}
+        </div>
       </header>
 
       <main className="cabinet-body">
@@ -170,13 +143,13 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
                 <label>Откуда
                   <div className="input-with-map">
                     <input type="text" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="ул. Ленина 15" required />
-                    <button type="button" className="map-btn" onClick={() => setShowMap('from')} title="Выбрать на карте">📍</button>
+                    <button type="button" className="map-btn" onClick={() => setShowMap('from')}>📍</button>
                   </div>
                 </label>
                 <label>Куда
                   <div className="input-with-map">
                     <input type="text" value={addressTo} onChange={(e) => setAddressTo(e.target.value)} placeholder="ул. Союзная 20" required />
-                    <button type="button" className="map-btn" onClick={() => setShowMap('to')} title="Выбрать на карте">📍</button>
+                    <button type="button" className="map-btn" onClick={() => setShowMap('to')}>📍</button>
                   </div>
                 </label>
               </>
@@ -191,14 +164,13 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
                 <label>Куда доставить
                   <div className="input-with-map">
                     <input type="text" value={addressTo} onChange={(e) => setAddressTo(e.target.value)} placeholder="ул. Союзная 20" required />
-                    <button type="button" className="map-btn" onClick={() => setShowMap('to')} title="Выбрать на карте">📍</button>
+                    <button type="button" className="map-btn" onClick={() => setShowMap('to')}>📍</button>
                   </div>
                 </label>
               </>
             )}
 
             {error && <div className="error-box">⚠️ {error}</div>}
-
             <button type="submit" className="btn-primary" disabled={loading}>
               {loading ? 'Отправка...' : '🚖 Вызвать такси'}
             </button>
@@ -227,12 +199,9 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
               <div className="driver-info">
                 <div className="driver-title">🚗 Водитель</div>
                 <div className="driver-name">{activeOrder.driver_name}</div>
-                {activeOrder.car_model && (
-                  <div className="driver-car">{activeOrder.car_model} — {activeOrder.car_number}</div>
-                )}
-                {activeOrder.driver_phone && (
-                  <a href={`tel:${activeOrder.driver_phone}`} className="driver-phone">📞 {activeOrder.driver_phone}</a>
-                )}
+                {activeOrder.car_model && <div className="driver-car">{activeOrder.car_model} — {activeOrder.car_number}</div>}
+                {activeOrder.car_photo_url && <img src={activeOrder.car_photo_url} alt="car" className="car-photo-preview" style={{ height: '100px', width: '100%', objectFit: 'cover', marginTop: '10px' }} />}
+                {activeOrder.driver_phone && <a href={`tel:${activeOrder.driver_phone}`} className="driver-phone" style={{ marginTop: '10px', display: 'inline-block' }}>📞 {activeOrder.driver_phone}</a>}
               </div>
             )}
 
@@ -264,13 +233,8 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
         )}
       </main>
 
-      {showMap && (
-        <MapPicker
-          initialCoords={showMap === 'from' ? coords : coordsTo}
-          onSelect={handleMapSelect}
-          onClose={() => setShowMap(null)}
-        />
-      )}
+      {showMap && <MapPicker initialCoords={showMap === 'from' ? coords : coordsTo} onSelect={handleMapSelect} onClose={() => setShowMap(null)} />}
+      {showSettings && <AccountSettings user={currentUser} token={token} authFetch={authFetch} onClose={() => setShowSettings(false)} onLogout={onLogout} onUpdate={setCurrentUser} />}
     </div>
   );
 }
