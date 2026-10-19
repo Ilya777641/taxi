@@ -16,6 +16,29 @@
     
     <!-- Яндекс.Карты -->
     <script src="https://api-maps.yandex.ru/2.1/?apikey=28c08b02-899e-4f80-b9cc-bcc3cfe20a1e&lang=ru_RU" type="text/javascript"></script>
+
+    <!-- OneSignal (Push-уведомления) -->
+    <script src="https://cdn.onesignal.com/sdks/web/v16/OneSignalSDK.page.js" defer></script>
+    <script>
+      window.OneSignalDeferred = window.OneSignalDeferred || [];
+      OneSignalDeferred.push(async function(OneSignal) {
+        await OneSignal.init({
+          appId: "9925559e-4752-4606-8e40-cde229c05958",
+          allowLocalhostAsSecureOrigin: true,
+          notifyButton: {
+            enable: true,
+            position: 'bottom-left',
+            size: 'small',
+            theme: 'default',
+            text: {
+              'tip.state.unsubscribed': 'Подписаться на заказы',
+              'tip.state.subscribed': 'Вы подписаны на заказы',
+              'tip.state.blocked': 'Уведомления заблокированы',
+            },
+          },
+        });
+      });
+    </script>
   </head>
   <body>
     <div id="root"></div>
