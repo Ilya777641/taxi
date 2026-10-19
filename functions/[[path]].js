@@ -9,12 +9,12 @@ app.use('*', cors({
 }));
 
 // ============================================================
-// ОТПРАВКА PUSH (OneSignal)
+// ОТПРАВКА PUSH (OneSignal v16 - через external_id)
 // ============================================================
-async function sendPush(env, playerIds, title, message) {
-  if (!playerIds || playerIds.length === 0) return;
+async function sendPush(env, externalIds, title, message) {
+  if (!externalIds || externalIds.length === 0) return;
   try {
-    await fetch('https://api.onesignal.com/notifications', {
+    const response = await fetch('https://api.onesignal.com/notifications', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -22,13 +22,23 @@ async function sendPush(env, playerIds, title, message) {
       },
       body: JSON.stringify({
         app_id: env.ONESIGNAL_APP_ID,
-        include_player_ids: playerIds,
+        include_aliases: {
+          external_id: externalIds.map(String)
+        },
+        target_channel: "push",
         headings: { en: title, ru: title },
         contents: { en: message, ru: message },
       }),
     });
+    
+    const data = await response.json();
+    if (!response.ok) {
+      console.error('PUSH API ERROR:', JSON.stringify(data));
+    } else {
+      console.log('PUSH SENT OK:', JSON.stringify(data));
+    }
   } catch (err) {
-    console.error('PUSH ERROR:', err);
+    console.error('PUSH FETCH ERROR:', err);
   }
 }
 
@@ -216,7 +226,7 @@ app.post('/api/auth/avatar', authRequired, async (c) => {
   } catch (err) { return c.json({ error: 'Ошибка' }, 500); }
 });
 
-// СОХРАНЕНИЕ ONESIGNAL ID
+// (Оставил на всякий случай, если где-то дергается, но теперь он не обязателен для пушей)
 app.post('/api/auth/onesignal', authRequired, async (c) => {
   try {
     const { onesignal_id } = await c.req.json();
@@ -277,10 +287,10 @@ app.post('/api/orders', authRequired, async (c) => {
     ).bind(c.get('userId'), order_kind || 'taxi', priceInfo.type, address || null, address_to.trim(), delivery_item || null, delivery_from || null, finalPrice).first();
 
     // Отправляем push всем водителям на смене
-    const drivers = await c.env.DB.prepare('SELECT onesignal_id FROM taxi_users WHERE role = ? AND is_on_shift = 1 AND onesignal_id IS NOT NULL').bind('driver').all();
-    const playerIds = (drivers.results || []).map(d => d.onesignal_id);
-    if (playerIds.length > 0) {
-      await sendPush(c.env, playerIds, '🚖 Новый заказ!', `${address || delivery_from} → ${address_to} (${finalPrice} ₽)`);
+    const drivers = await c.env.DB.prepare('SELECT id FROM taxi_users WHERE role = ? AND is_on_shift = 1').bind('driver').all();
+    const driverIds = (drivers.results || []).map(d => d.id);
+    if (driverIds.length > 0) {
+      await sendPush(c.env, driverIds, '🚖 Новый заказ!', `${address || delivery_from} → ${address_to} (${finalPrice} ₽)`);
     }
 
     return c.json(result);
@@ -389,10 +399,7 @@ app.post('/api/orders/:id/accept', authRequired, async (c) => {
 
   // Пуш клиенту о том, что водитель найден
   try {
-    const client = await c.env.DB.prepare('SELECT onesignal_id FROM taxi_users WHERE id = ?').bind(result.client_id).first();
-    if (client && client.onesignal_id) {
-      await sendPush(c.env, [client.onesignal_id], '🚖 Водитель найден!', 'Ваш заказ принят. Ожидайте прибытия машины.');
-    }
+    await sendPush(c.env, [result.client_id], '🚖 Водитель найден!', 'Ваш заказ принят. Ожидайте прибытия машины.');
   } catch (err) { console.error('PUSH ACCEPT ERROR:', err); }
 
   const max = await c.env.DB.prepare('SELECT COALESCE(MAX(queue_position), 0) AS max_pos FROM taxi_users WHERE role = ? AND is_on_shift = 1').bind('driver').first();
@@ -432,16 +439,14 @@ app.post('/api/orders/:id/status', authRequired, async (c) => {
 
   // Отправляем пуш клиенту на смену статуса
   try {
-    const client = await c.env.DB.prepare('SELECT onesignal_id FROM taxi_users WHERE id = ?').bind(result.client_id).first();
-    
-    if (client && client.onesignal_id) {
-      const messages = {
-        'on_way': { title: '🚖 Водитель в пути', body: 'Ваш водитель уже выехал за вами!' },
-        'waiting': { title: '📍 Водитель на месте', body: 'Водитель ожидает вас по адресу. Пожалуйста, выходите.' },
-        'completed': { title: '✅ Поездка завершена', body: 'Спасибо за поездку! Будем рады видеть вас снова.' }
-      };
-      const msg = messages[status];
-      if (msg) await sendPush(c.env, [client.onesignal_id], msg.title, msg.body);
+    const messages = {
+      'on_way': { title: '🚖 Водитель в пути', body: 'Ваш водитель уже выехал за вами!' },
+      'waiting': { title: '📍 Водитель на месте', body: 'Водитель ожидает вас по адресу. Пожалуйста, выходите.' },
+      'completed': { title: '✅ Поездка завершена', body: 'Спасибо за поездку! Будем рады видеть вас снова.' }
+    };
+    const msg = messages[status];
+    if (msg) {
+      await sendPush(c.env, [result.client_id], msg.title, msg.body);
     }
   } catch (err) { console.error('PUSH STATUS ERROR:', err); }
 

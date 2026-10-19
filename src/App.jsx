@@ -16,17 +16,20 @@ function App() {
 
     const registerOneSignal = async () => {
       try {
-        // Ждём загрузки OneSignal SDK
         window.OneSignalDeferred = window.OneSignalDeferred || [];
         window.OneSignalDeferred.push(async (OneSignal) => {
-          // Запрашиваем разрешение на пуши (если ещё не дано)
+          // Запрашиваем разрешение на пуши
           await OneSignal.Notifications.requestPermission();
           
-          // Получаем уникальный ID подписки (playerId)
+          // ВАЖНО: Привязываем пользователя из базы к OneSignal (External ID)
+          if (user && user.id) {
+            await OneSignal.login(String(user.id)); 
+          }
+          
+          // Получаем уникальный ID подписки (на всякий случай, если пригодится в будущем)
           const externalId = OneSignal.User.PushSubscription.id;
           
           if (externalId) {
-            // Отправляем на бэкенд, чтобы привязать к базе
             await fetch(`${API_URL}/api/auth/onesignal`, {
               method: 'POST',
               headers: {
@@ -35,11 +38,11 @@ function App() {
               },
               body: JSON.stringify({ onesignal_id: externalId }),
             });
-            console.log('OneSignal ID сохранён на сервере:', externalId);
+            console.log('OneSignal ID сохранён:', externalId);
           }
         });
       } catch (err) {
-        console.error('Ошибка при привязке OneSignal:', err);
+        console.error('Ошибка привязки OneSignal:', err);
       }
     };
 
