@@ -12,7 +12,9 @@ app.use('*', cors({
 // ОТПРАВКА PUSH (OneSignal v16 - через external_id)
 // ============================================================
 async function sendPush(env, externalIds, title, message) {
-  if (!externalIds || externalIds.length === 0) return;
+  const ids = (externalIds || []).map(id => String(id));
+  if (ids.length === 0) return;
+
   try {
     const response = await fetch('https://api.onesignal.com/notifications', {
       method: 'POST',
@@ -23,7 +25,7 @@ async function sendPush(env, externalIds, title, message) {
       body: JSON.stringify({
         app_id: env.ONESIGNAL_APP_ID,
         include_aliases: {
-          external_id: externalIds.map(String)
+          external_id: ids
         },
         target_channel: "push",
         headings: { en: title, ru: title },
@@ -32,11 +34,7 @@ async function sendPush(env, externalIds, title, message) {
     });
     
     const data = await response.json();
-    if (!response.ok) {
-      console.error('PUSH API ERROR:', JSON.stringify(data));
-    } else {
-      console.log('PUSH SENT OK:', JSON.stringify(data));
-    }
+    console.log('PUSH RESPONSE:', JSON.stringify(data));
   } catch (err) {
     console.error('PUSH FETCH ERROR:', err);
   }
@@ -226,7 +224,6 @@ app.post('/api/auth/avatar', authRequired, async (c) => {
   } catch (err) { return c.json({ error: 'Ошибка' }, 500); }
 });
 
-// (Оставил на всякий случай, если где-то дергается, но теперь он не обязателен для пушей)
 app.post('/api/auth/onesignal', authRequired, async (c) => {
   try {
     const { onesignal_id } = await c.req.json();
@@ -342,28 +339,34 @@ app.post('/api/driver/delivery', authRequired, async (c) => {
   return c.json({ success: true });
 });
 
+// ВНИМАНИЕ: Здесь убрана проверка на очередь! Теперь заказ видят все, кто на смене
 app.get('/api/driver/my-order', authRequired, async (c) => {
   if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
+  
+  // 1. Проверяем, есть ли у водителя активный заказ
   let order = await c.env.DB.prepare(
     `SELECT o.*, u.username AS client_name, u.phone AS client_phone FROM taxi_orders o JOIN taxi_users u ON u.id = o.client_id WHERE o.driver_id = ? AND o.status IN ('accepted', 'on_way', 'waiting') ORDER BY o.accepted_at DESC LIMIT 1`
   ).bind(c.get('userId')).first();
   if (order) return c.json({ order, type: 'active' });
 
+  // 2. Проверяем, есть ли заказ, назначенный конкретно ему (если используется assigned_to)
   order = await c.env.DB.prepare(
     `SELECT o.*, u.username AS client_name, u.phone AS client_phone FROM taxi_orders o JOIN taxi_users u ON u.id = o.client_id WHERE o.assigned_to = ? AND o.status = 'pending' ORDER BY o.created_at ASC LIMIT 1`
   ).bind(c.get('userId')).first();
   if (order) return c.json({ order, type: 'assigned' });
 
+  // 3. Если водитель на смене и у него нет активного заказа — показываем ему любой свободный заказ
   const me = await c.env.DB.prepare('SELECT is_on_shift FROM taxi_users WHERE id = ?').bind(c.get('userId')).first();
   if (me?.is_on_shift) {
-    const firstInQueue = await c.env.DB.prepare(`SELECT id FROM taxi_users WHERE role = 'driver' AND is_on_shift = 1 ORDER BY queue_position ASC LIMIT 1`).first();
-    if (firstInQueue?.id === c.get('userId')) {
-      const freeOrder = await c.env.DB.prepare(
-        `SELECT o.*, u.username AS client_name, u.phone AS client_phone FROM taxi_orders o JOIN taxi_users u ON u.id = o.client_id WHERE o.status = 'pending' AND o.assigned_to IS NULL ORDER BY o.created_at ASC LIMIT 1`
-      ).first();
-      if (freeOrder) return c.json({ order: freeOrder, type: 'assigned' });
+    const freeOrder = await c.env.DB.prepare(
+      `SELECT o.*, u.username AS client_name, u.phone AS client_phone FROM taxi_orders o JOIN taxi_users u ON u.id = o.client_id WHERE o.status = 'pending' AND o.assigned_to IS NULL ORDER BY o.created_at ASC LIMIT 1`
+    ).first();
+    
+    if (freeOrder) {
+      return c.json({ order: freeOrder, type: 'assigned' });
     }
   }
+  
   return c.json({ order: null, type: 'idle' });
 });
 
@@ -397,11 +400,12 @@ app.post('/api/orders/:id/accept', authRequired, async (c) => {
   
   if (!result) return c.json({ error: 'Заказ уже занят' }, 409);
 
-  // Пуш клиенту о том, что водитель найден
+  // Пуш клиенту
   try {
     await sendPush(c.env, [result.client_id], '🚖 Водитель найден!', 'Ваш заказ принят. Ожидайте прибытия машины.');
   } catch (err) { console.error('PUSH ACCEPT ERROR:', err); }
 
+  // Обновляем очередь (чтобы водитель уехал в конец)
   const max = await c.env.DB.prepare('SELECT COALESCE(MAX(queue_position), 0) AS max_pos FROM taxi_users WHERE role = ? AND is_on_shift = 1').bind('driver').first();
   await c.env.DB.prepare('UPDATE taxi_users SET queue_position = ?, last_order_at = datetime("now") WHERE id = ?').bind((max.max_pos || 0) + 1, driverId).run();
   
@@ -437,7 +441,7 @@ app.post('/api/orders/:id/status', authRequired, async (c) => {
   
   if (!result) return c.json({ error: 'Не найден' }, 404);
 
-  // Отправляем пуш клиенту на смену статуса
+  // Пуш клиенту
   try {
     const messages = {
       'on_way': { title: '🚖 Водитель в пути', body: 'Ваш водитель уже выехал за вами!' },
