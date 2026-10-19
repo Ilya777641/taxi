@@ -22,7 +22,7 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
   const [showMap, setShowMap] = useState(null);
   const [showSettings, setShowSettings] = useState(false);
   const [currentUser, setCurrentUser] = useState(user);
-  
+
   const [tab, setTab] = useState('order'); // 'order' | 'history'
   const [history, setHistory] = useState([]);
 
@@ -198,7 +198,7 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
         {tab === 'history' && (
           <div className="history-section">
             {history.length === 0 && <div className="empty-state">Поездок пока нет</div>}
-            {history.map(o => (
+            {history.map((o) => (
               <div key={o.id} className="admin-item" style={{ cursor: 'default' }}>
                 <div className="item-row"><span>Заказ #{o.id}</span><span>{o.price} ₽</span></div>
                 <div className="item-meta">{new Date(o.created_at).toLocaleDateString()} • {o.address || o.delivery_from} → {o.address_to}</div>

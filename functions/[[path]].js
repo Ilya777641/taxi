@@ -9,6 +9,30 @@ app.use('*', cors({
 }));
 
 // ============================================================
+// ОТПРАВКА PUSH (OneSignal)
+// ============================================================
+async function sendPush(env, playerIds, title, message) {
+  if (!playerIds || playerIds.length === 0) return;
+  try {
+    await fetch('https://api.onesignal.com/notifications', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Key ${env.ONESIGNAL_REST_API_KEY}`,
+      },
+      body: JSON.stringify({
+        app_id: env.ONESIGNAL_APP_ID,
+        include_player_ids: playerIds,
+        headings: { en: title, ru: title },
+        contents: { en: message, ru: message },
+      }),
+    });
+  } catch (err) {
+    console.error('PUSH ERROR:', err);
+  }
+}
+
+// ============================================================
 // УТИЛИТЫ
 // ============================================================
 function base64UrlEncode(str) {
@@ -192,6 +216,16 @@ app.post('/api/auth/avatar', authRequired, async (c) => {
   } catch (err) { return c.json({ error: 'Ошибка' }, 500); }
 });
 
+// СОХРАНЕНИЕ ONESIGNAL ID
+app.post('/api/auth/onesignal', authRequired, async (c) => {
+  try {
+    const { onesignal_id } = await c.req.json();
+    if (!onesignal_id) return c.json({ error: 'Нет ID' }, 400);
+    await c.env.DB.prepare('UPDATE taxi_users SET onesignal_id = ? WHERE id = ?').bind(onesignal_id, c.get('userId')).run();
+    return c.json({ success: true });
+  } catch (err) { return c.json({ error: 'Ошибка' }, 500); }
+});
+
 // ============================================================
 // ФОТО В R2
 // ============================================================
@@ -241,6 +275,14 @@ app.post('/api/orders', authRequired, async (c) => {
     const result = await c.env.DB.prepare(
       `INSERT INTO taxi_orders (client_id, order_kind, order_type, address, address_to, delivery_item, delivery_from, price, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending') RETURNING *`
     ).bind(c.get('userId'), order_kind || 'taxi', priceInfo.type, address || null, address_to.trim(), delivery_item || null, delivery_from || null, finalPrice).first();
+
+    // Отправляем push всем водителям на смене
+    const drivers = await c.env.DB.prepare('SELECT onesignal_id FROM taxi_users WHERE role = ? AND is_on_shift = 1 AND onesignal_id IS NOT NULL').bind('driver').all();
+    const playerIds = (drivers.results || []).map(d => d.onesignal_id);
+    if (playerIds.length > 0) {
+      await sendPush(c.env, playerIds, '🚖 Новый заказ!', `${address || delivery_from} → ${address_to} (${finalPrice} ₽)`);
+    }
+
     return c.json(result);
   } catch (err) { return c.json({ error: 'Ошибка' }, 500); }
 });

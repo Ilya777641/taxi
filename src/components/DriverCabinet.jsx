@@ -36,10 +36,22 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
   };
 
   useEffect(() => {
+    // Сохраняем OneSignal ID
+    if (window.OneSignal) {
+      window.OneSignal.getUserId((userId) => {
+        if (userId) {
+          authFetch('/api/auth/onesignal', {
+            method: 'POST',
+            body: JSON.stringify({ onesignal_id: userId }),
+          }).catch((err) => console.error('OneSignal save error:', err));
+        }
+      });
+    }
+
     poll();
     intervalRef.current = setInterval(poll, POLL_INTERVAL);
     return () => clearInterval(intervalRef.current);
-  }, [tab]);
+  }, [tab, authFetch]);
 
   const toggleShift = async () => {
     setLoading(true);
@@ -171,10 +183,10 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
               <div className="stat-card"><div>Месяц</div><strong>{stats.month || 0} ₽</strong></div>
               <div className="stat-card"><div>Все время</div><strong>{stats.all_time || 0} ₽</strong></div>
             </div>
-            
+
             <h3 style={{ marginTop: '20px' }}>Последние поездки</h3>
             <div className="admin-list">
-              {history.map(o => (
+              {history.map((o) => (
                 <div key={o.id} className="admin-item" style={{ cursor: 'default' }}>
                   <div className="item-row"><span>Заказ #{o.id}</span><span>{o.price} ₽</span></div>
                   <div className="item-meta">{new Date(o.completed_at).toLocaleDateString()} • {o.address} → {o.address_to}</div>
