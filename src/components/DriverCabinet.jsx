@@ -29,16 +29,18 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
       } else if (tab === 'history') {
         const histRes = await authFetch('/api/driver/my-history');
         const histData = await histRes.json();
-        setHistory(histData.orders);
-        setStats(histData.stats);
+        setHistory(histData.orders || []);
+        setStats(histData.stats || null);
       }
-    } catch (err) {}
+    } catch (err) {
+      console.error('Poll error:', err);
+    }
   };
 
   useEffect(() => {
-    // Сохраняем OneSignal ID
-    if (window.OneSignal) {
-      window.OneSignal.getUserId((userId) => {
+    // Сохраняем OneSignal ID (если скрипт загрузился)
+    if (window.OneSignal && window.OneSignal.getUserId) {
+      window.OneSignal.getUserId().then((userId) => {
         if (userId) {
           authFetch('/api/auth/onesignal', {
             method: 'POST',
@@ -99,7 +101,13 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
     setLoading(false);
   };
 
-  if (!me) return <div className="loading-page"><div className="loading-spinner" /></div>;
+  if (!me) {
+    return (
+      <div className="loading-page">
+        <div className="loading-spinner" />
+      </div>
+    );
+  }
 
   const statusLabels = { assigned: '🔔 Новый заказ', active: '🚗 Активный заказ', idle: '⏳ Ожидание' };
 
@@ -109,7 +117,7 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
         <h1>🚖 Водитель</h1>
         <div className="header-actions">
           <button className="settings-btn" onClick={() => setShowSettings(true)}>⚙️</button>
-          {currentUser.avatar_url ? <img src={currentUser.avatar_url} className="avatar-small" /> : <div className="avatar-small">{currentUser.username[0]}</div>}
+          {currentUser.avatar_url ? <img src={currentUser.avatar_url} className="avatar-small" alt="avatar" /> : <div className="avatar-small">{currentUser.username[0]}</div>}
         </div>
       </header>
 
