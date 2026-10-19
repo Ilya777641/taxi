@@ -38,17 +38,31 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
   };
 
   useEffect(() => {
-    // Сохраняем OneSignal ID (если скрипт загрузился)
-    if (window.OneSignal && window.OneSignal.getUserId) {
-      window.OneSignal.getUserId().then((userId) => {
-        if (userId) {
-          authFetch('/api/auth/onesignal', {
-            method: 'POST',
-            body: JSON.stringify({ onesignal_id: userId }),
-          }).catch((err) => console.error('OneSignal save error:', err));
+    // Умное ожидание загрузки OneSignal и сохранение ID
+    const saveOneSignalId = async () => {
+      for (let i = 0; i < 20; i++) {
+        if (window.OneSignal && window.OneSignal.getUserId) {
+          try {
+            const userId = await window.OneSignal.getUserId();
+            if (userId) {
+              console.log('OneSignal ID найден:', userId);
+              await authFetch('/api/auth/onesignal', {
+                method: 'POST',
+                body: JSON.stringify({ onesignal_id: userId }),
+              });
+              return; // Успешно сохранили, выходим
+            }
+          } catch (err) {
+            console.error('OneSignal error:', err);
+          }
         }
-      });
-    }
+        // Ждем 500мс перед следующей попыткой
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      console.log('OneSignal ID не найден после 10 секунд ожидания');
+    };
+
+    saveOneSignalId();
 
     poll();
     intervalRef.current = setInterval(poll, POLL_INTERVAL);
