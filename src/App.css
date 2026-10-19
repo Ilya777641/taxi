@@ -118,7 +118,6 @@ body {
    ============================================ */
 .cabinet {
   min-height: 100vh; padding: 20px; max-width: 800px; margin: 0 auto;
-  /* Жёсткий отступ сверху для PWA */
   padding-top: max(60px, env(safe-area-inset-top));
 }
 .cabinet-header {
@@ -182,7 +181,7 @@ body {
 .settings-success { color: #66bb6a; font-size: 13px; text-align: center; }
 
 /* ============================================
-   MAP PICKER (Исправленный)
+   MAP PICKER
    ============================================ */
 .map-modal {
   width: 100%; max-width: 800px; height: 80vh; max-height: 700px;
@@ -242,6 +241,54 @@ body {
 .chat-form input { flex: 1; padding: 12px 16px; border: 1px solid var(--border); border-radius: 20px; background: var(--black-card); color: var(--text); outline: none; }
 .chat-form button { width: 46px; height: 46px; border-radius: 50%; background: var(--yellow); color: var(--black); font-weight: 700; cursor: pointer; border: none; }
 
+/* ============================================
+   СТАТИСТИКА И НОВЫЕ БЛОКИ
+   ============================================ */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.stat-card {
+  background: var(--black-card);
+  border: 1px solid var(--border);
+  padding: 16px;
+  border-radius: 14px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.stat-card > div {
+  font-size: 13px;
+  color: var(--text-soft);
+  margin-bottom: 6px;
+}
+
+.stat-card strong {
+  font-size: 22px;
+  color: var(--yellow);
+  font-weight: 800;
+}
+
+.history-section h3 {
+  color: var(--text);
+  font-size: 18px;
+  margin-bottom: 12px;
+}
+
+.prices-section h3 {
+  color: var(--yellow);
+  font-size: 18px;
+  margin-bottom: 12px;
+}
+
+/* ============================================
+   АДАПТИВ
+   ============================================ */
 @media (max-width: 480px) {
   .cabinet { padding: 16px 14px 40px; padding-top: max(60px, env(safe-area-inset-top)); }
   .cabinet-header h1 { font-size: 22px; }

@@ -9,7 +9,10 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
   const [drivers, setDrivers] = useState([]);
   const [pendingDrivers, setPendingDrivers] = useState([]);
   const [admins, setAdmins] = useState([]); 
-  const [tab, setTab] = useState('orders');
+  const [stats, setStats] = useState(null);
+  const [prices, setPrices] = useState({ streets: [], locations: [] });
+  
+  const [tab, setTab] = useState('dashboard'); 
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [messages, setMessages] = useState([]);
   const [messageText, setMessageText] = useState('');
@@ -33,6 +36,12 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
       } else if (tab === 'admins') {
         const res = await authFetch('/api/admin/admins');
         setAdmins(await res.json());
+      } else if (tab === 'dashboard') {
+        const res = await authFetch('/api/admin/stats');
+        setStats(await res.json());
+      } else if (tab === 'prices') {
+        const res = await authFetch('/api/admin/prices');
+        setPrices(await res.json());
       }
     } catch (err) {}
   };
@@ -43,52 +52,24 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
     return () => clearInterval(intervalRef);
   }, [tab]);
 
-  const approveDriver = async (id) => {
-    await authFetch(`/api/admin/drivers/${id}/approve`, { method: 'POST' });
-    poll();
-  };
-
-  const blockDriver = async (id) => {
-    await authFetch(`/api/admin/drivers/${id}/block`, { method: 'POST' });
-    poll();
-  };
-
-  const deleteDriver = async (id) => {
-    if (!window.confirm('Удалить водителя из базы навсегда?')) return;
-    await authFetch(`/api/admin/drivers/${id}`, { method: 'DELETE' });
-    poll();
-  };
-
-  const deleteOrder = async (id) => {
-    if (!window.confirm('Удалить заказ из истории?')) return;
-    await authFetch(`/api/admin/orders/${id}`, { method: 'DELETE' });
-    poll();
-  };
-
+  const approveDriver = async (id) => { await authFetch(`/api/admin/drivers/${id}/approve`, { method: 'POST' }); poll(); };
+  const blockDriver = async (id) => { await authFetch(`/api/admin/drivers/${id}/block`, { method: 'POST' }); poll(); };
+  const deleteDriver = async (id) => { if (!window.confirm('Удалить водителя?')) return; await authFetch(`/api/admin/drivers/${id}`, { method: 'DELETE' }); poll(); };
+  const deleteOrder = async (id) => { if (!window.confirm('Удалить заказ?')) return; await authFetch(`/api/admin/orders/${id}`, { method: 'DELETE' }); poll(); };
+  
   const sendMessage = async (e) => {
     e.preventDefault();
     if (!messageText.trim() || !selectedOrder) return;
-    try {
-      await authFetch(`/api/orders/${selectedOrder.id}/messages`, {
-        method: 'POST',
-        body: JSON.stringify({ text: messageText }),
-      });
-      setMessageText('');
-    } catch (err) {}
+    try { await authFetch(`/api/orders/${selectedOrder.id}/messages`, { method: 'POST', body: JSON.stringify({ text: messageText }) }); setMessageText(''); } catch (err) {}
   };
 
   const handleAddAdmin = async (e) => {
     e.preventDefault();
     try {
-      const res = await authFetch('/api/admin/admins', {
-        method: 'POST',
-        body: JSON.stringify({ username: newAdminName, password: newAdminPass }),
-      });
+      const res = await authFetch('/api/admin/admins', { method: 'POST', body: JSON.stringify({ username: newAdminName, password: newAdminPass }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      setNewAdminName(''); setNewAdminPass('');
-      poll();
-      alert('Админ добавлен');
+      setNewAdminName(''); setNewAdminPass(''); poll(); alert('Админ добавлен');
     } catch (err) { alert(err.message); }
   };
 
@@ -101,11 +82,15 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
     } catch (err) { alert(err.message); }
   };
 
+  const updatePrice = async (type, id, value) => {
+    if (isNaN(value) || value === '') return;
+    try {
+      await authFetch('/api/admin/prices/update', { method: 'POST', body: JSON.stringify({ type, id, price: Number(value) }) });
+    } catch (err) { alert('Ошибка сохранения цены'); }
+  };
+
   const getStatusLabel = (status) => {
-    const map = {
-      pending: '⏳ Ищем водителя', accepted: '✅ Принят', on_way: '🚗 В пути',
-      waiting: '⏰ Ожидает', completed: '✔️ Завершён', cancelled: '❌ Отменён',
-    };
+    const map = { pending: '⏳ Ищем', accepted: '✅ Принят', on_way: '🚗 В пути', waiting: '⏰ Ожидает', completed: '✔️ Завершён', cancelled: '❌ Отменён' };
     return map[status] || status;
   };
 
@@ -113,14 +98,13 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
     if (!driver.is_on_shift) return '⚫ Не на смене';
     if (driver.status === 'pending') return '⏳ На модерации';
     if (driver.status === 'blocked') return '🚫 Заблокирован';
-    
     const activeOrder = orders.find(o => o.driver_id === driver.id && o.status !== 'completed' && o.status !== 'cancelled');
     if (activeOrder) {
-      if (activeOrder.status === 'on_way') return `🚗 В пути (Заказ #${activeOrder.id})`;
-      if (activeOrder.status === 'waiting') return `⏰ Ожидает клиента (Заказ #${activeOrder.id})`;
-      if (activeOrder.status === 'accepted') return `✅ Едет на заказ #${activeOrder.id}`;
+      if (activeOrder.status === 'on_way') return `🚗 В пути (#${activeOrder.id})`;
+      if (activeOrder.status === 'waiting') return `⏰ Ожидает (#${activeOrder.id})`;
+      if (activeOrder.status === 'accepted') return `✅ Едет (#${activeOrder.id})`;
     }
-    return '🟢 Свободен (на смене)';
+    return '🟢 Свободен';
   };
 
   return (
@@ -129,47 +113,63 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
         <h1>🚖 Админ</h1>
         <div className="header-actions">
           <button className="settings-btn" onClick={() => setShowSettings(true)}>⚙️</button>
-          {currentUser.avatar_url ? (
-            <img src={currentUser.avatar_url} className="avatar-small" alt="avatar" />
-          ) : (
-            <div className="avatar-small">{currentUser.username[0]}</div>
-          )}
+          {currentUser.avatar_url ? <img src={currentUser.avatar_url} className="avatar-small" /> : <div className="avatar-small">{currentUser.username[0]}</div>}
         </div>
       </header>
 
-      <div className="admin-tabs" style={{ flexWrap: 'wrap' }}>
+      <div className="admin-tabs" style={{ flexWrap: 'wrap', gap: '5px' }}>
+        <button className={tab === 'dashboard' ? 'active' : ''} onClick={() => setTab('dashboard')}>📊 Стата</button>
         <button className={tab === 'orders' ? 'active' : ''} onClick={() => setTab('orders')}>📋 Заказы</button>
-        <button className={tab === 'pending' ? 'active' : ''} onClick={() => setTab('pending')}>
-          ⏳ Модерация {pendingDrivers.length > 0 && `(${pendingDrivers.length})`}
-        </button>
+        <button className={tab === 'pending' ? 'active' : ''} onClick={() => setTab('pending')}>⏳ Модер {pendingDrivers.length > 0 && `(${pendingDrivers.length})`}</button>
         <button className={tab === 'drivers' ? 'active' : ''} onClick={() => setTab('drivers')}>🚗 Водители</button>
+        <button className={tab === 'prices' ? 'active' : ''} onClick={() => setTab('prices')}>💵 Цены</button>
         <button className={tab === 'admins' ? 'active' : ''} onClick={() => setTab('admins')}>👑 Админы</button>
       </div>
 
       <main className="cabinet-body">
-        {/* ВКЛАДКА ЗАКАЗЫ */}
+        {tab === 'dashboard' && stats && (
+          <div className="stats-grid">
+            <div className="stat-card"><div>Заказов сегодня</div><strong>{stats.ordersToday}</strong></div>
+            <div className="stat-card"><div>Выполнено</div><strong>{stats.completedToday}</strong></div>
+            <div className="stat-card"><div>На смене</div><strong>{stats.driversOnShift}</strong></div>
+            <div className="stat-card"><div>Выручка сегодня</div><strong>{stats.revenueToday} ₽</strong></div>
+            <div className="stat-card"><div>Выручка всего</div><strong>{stats.revenueAll} ₽</strong></div>
+          </div>
+        )}
+
+        {tab === 'prices' && (
+          <div className="prices-section">
+            <h3>Улицы села</h3>
+            {prices.streets.map(s => (
+              <div key={s.id} style={{ display: 'flex', gap: '10px', marginBottom: '8px', alignItems: 'center' }}>
+                <span style={{ flex: 1 }}>{s.display_name}</span>
+                <input type="number" defaultValue={s.price} onBlur={(e) => updatePrice('street', s.id, e.target.value)} style={{ width: '80px', padding: '5px', borderRadius: '5px', border: '1px solid var(--border)', background: 'var(--black)', color: 'white' }} />
+              </div>
+            ))}
+            <h3 style={{ marginTop: '20px' }}>Населенные пункты</h3>
+            {prices.locations.map(l => (
+              <div key={l.id} style={{ display: 'flex', gap: '10px', marginBottom: '8px', alignItems: 'center' }}>
+                <span style={{ flex: 1 }}>{l.display_name}</span>
+                <input type="number" defaultValue={l.price} onBlur={(e) => updatePrice('location', l.id, e.target.value)} style={{ width: '80px', padding: '5px', borderRadius: '5px', border: '1px solid var(--border)', background: 'var(--black)', color: 'white' }} />
+              </div>
+            ))}
+          </div>
+        )}
+
         {tab === 'orders' && !selectedOrder && (
           <div className="admin-list">
-            {orders.length === 0 && <div className="empty-state">Заказов нет</div>}
             {orders.map((o) => (
               <SwipeableItem key={o.id} onDelete={() => deleteOrder(o.id)}>
                 <div onClick={() => setSelectedOrder(o)}>
-                  <div className="item-row">
-                    <span className="item-kind">{o.order_kind === 'taxi' ? '🚖' : '📦'} #{o.id}</span>
-                    <span className={`item-status status-${o.status}`}>{getStatusLabel(o.status)}</span>
-                  </div>
+                  <div className="item-row"><span className="item-kind">{o.order_kind === 'taxi' ? '🚖' : '📦'} #{o.id}</span><span className={`item-status status-${o.status}`}>{getStatusLabel(o.status)}</span></div>
                   <div className="item-meta" style={{ color: 'var(--text)' }}>{o.address || o.delivery_from} → {o.address_to}</div>
-                  <div className="item-meta">
-                    {o.client_name && `Клиент: ${o.client_name}`}
-                    {o.driver_name && ` • Водитель: ${o.driver_name}`}
-                  </div>
+                  <div className="item-meta">{o.client_name && `Клиент: ${o.client_name}`}{o.driver_name && ` • Водитель: ${o.driver_name}`}</div>
                 </div>
               </SwipeableItem>
             ))}
           </div>
         )}
 
-        {/* ДЕТАЛИ ЗАКАЗА */}
         {tab === 'orders' && selectedOrder && (
           <div className="order-detail">
             <button className="btn-back" onClick={() => setSelectedOrder(null)}>← Назад</button>
@@ -182,31 +182,18 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
               <div className="order-row"><span>Цена:</span> <strong>{selectedOrder.price} ₽</strong></div>
             </div>
             <div className="chat">
-              <div className="chat-messages">
-                {messages.map((m) => (
-                  <div key={m.id} className={`msg msg-${m.sender_role}`}>
-                    <div className="msg-author">{m.username}</div>
-                    <div className="msg-text">{m.text}</div>
-                  </div>
-                ))}
-              </div>
-              <form className="chat-form" onSubmit={sendMessage}>
-                <input type="text" value={messageText} onChange={(e) => setMessageText(e.target.value)} placeholder="Написать клиенту..." />
-                <button type="submit">➤</button>
-              </form>
+              <div className="chat-messages">{messages.map((m) => (<div key={m.id} className={`msg msg-${m.sender_role}`}><div className="msg-author">{m.username}</div><div className="msg-text">{m.text}</div></div>))}</div>
+              <form className="chat-form" onSubmit={sendMessage}><input type="text" value={messageText} onChange={(e) => setMessageText(e.target.value)} placeholder="Написать..." /><button type="submit">➤</button></form>
             </div>
           </div>
         )}
 
-        {/* ВКЛАДКА МОДЕРАЦИЯ */}
         {tab === 'pending' && (
           <div className="admin-list">
             {pendingDrivers.length === 0 && <div className="empty-state">Нет заявок</div>}
             {pendingDrivers.map((d) => (
               <div key={d.id} className="admin-item" style={{ cursor: 'default', padding: '16px', background: 'var(--black-card)', borderRadius: '14px', border: '1px solid var(--border)', marginBottom: '10px' }}>
-                <div className="item-row">
-                  <span className="item-kind">🚗 {d.username}</span>
-                </div>
+                <div className="item-row"><span className="item-kind">🚗 {d.username}</span></div>
                 <div className="item-meta">{d.phone} • {d.car_model} ({d.car_number})</div>
                 <div className="item-buttons" style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
                   <button className="btn-success" style={{ flex: 1 }} onClick={() => approveDriver(d.id)}>✅ Одобрить</button>
@@ -217,31 +204,20 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
           </div>
         )}
 
-        {/* ВКЛАДКА ВОДИТЕЛИ */}
         {tab === 'drivers' && (
           <div className="admin-list">
             {drivers.map((d) => (
               <SwipeableItem key={d.id} onDelete={() => deleteDriver(d.id)} onBlock={() => blockDriver(d.id)}>
                 <div>
-                  <div className="item-row">
-                    <span className="item-kind">
-                      {d.is_on_shift ? '🟢' : '⚫'} {d.username}
-                    </span>
-                    <span className="item-status">#{d.queue_position}</span>
-                  </div>
-                  <div className="item-meta" style={{ color: 'var(--text)' }}>
-                    {getDriverStatus(d)}
-                  </div>
-                  <div className="item-meta">
-                    {d.car_model} • {d.car_number} {d.accepts_delivery ? '📦 Да' : '📦 Нет'}
-                  </div>
+                  <div className="item-row"><span className="item-kind">{d.is_on_shift ? '🟢' : '⚫'} {d.username}</span><span className="item-status">#{d.queue_position}</span></div>
+                  <div className="item-meta" style={{ color: 'var(--text)' }}>{getDriverStatus(d)}</div>
+                  <div className="item-meta">{d.car_model} • {d.car_number} {d.accepts_delivery ? '📦 Да' : '📦 Нет'}</div>
                 </div>
               </SwipeableItem>
             ))}
           </div>
         )}
 
-        {/* ВКЛАДКА АДМИНЫ */}
         {tab === 'admins' && (
           <div className="admin-list">
             <div className="order-form" style={{ marginBottom: '20px', background: 'var(--black-card)' }}>
@@ -252,32 +228,16 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
                 <button type="submit" className="btn-primary" style={{ width: '100%' }}>Создать</button>
               </form>
             </div>
-            
             {admins.map(a => (
               <div key={a.id} className="admin-item" style={{ background: 'var(--black-card)', padding: '16px', borderRadius: '14px', border: '1px solid var(--border)', marginBottom: '10px' }}>
-                <div className="item-row">
-                  <span className="item-kind">{a.username}</span>
-                  <span className="item-meta">Код: {a.login_code || '—'}</span>
-                </div>
-                {a.id !== currentUser.id && (
-                  <button className="btn-danger" onClick={() => handleDeleteAdmin(a.id)} style={{ marginTop: '10px', width: '100%' }}>Удалить</button>
-                )}
+                <div className="item-row"><span className="item-kind">{a.username}</span><span className="item-meta">Код: {a.login_code || '—'}</span></div>
+                {a.id !== currentUser.id && <button className="btn-danger" onClick={() => handleDeleteAdmin(a.id)} style={{ marginTop: '10px', width: '100%' }}>Удалить</button>}
               </div>
             ))}
           </div>
         )}
       </main>
-
-      {showSettings && (
-        <AccountSettings
-          user={currentUser}
-          token={token}
-          authFetch={authFetch}
-          onClose={() => setShowSettings(false)}
-          onLogout={onLogout}
-          onUpdate={(newUser) => setCurrentUser(newUser)}
-        />
-      )}
+      {showSettings && <AccountSettings user={currentUser} token={token} authFetch={authFetch} onClose={() => setShowSettings(false)} onLogout={onLogout} onUpdate={setCurrentUser} />}
     </div>
   );
 }

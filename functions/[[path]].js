@@ -9,7 +9,7 @@ app.use('*', cors({
 }));
 
 // ============================================================
-// BASE64URL — UTF-8 SAFE
+// УТИЛИТЫ
 // ============================================================
 function base64UrlEncode(str) {
   const bytes = new TextEncoder().encode(str);
@@ -17,7 +17,6 @@ function base64UrlEncode(str) {
   for (const b of bytes) binary += String.fromCharCode(b);
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
-
 function base64UrlDecode(b64url) {
   const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/');
   const padded = b64 + '='.repeat((4 - b64.length % 4) % 4);
@@ -26,23 +25,14 @@ function base64UrlDecode(b64url) {
   for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   return new TextDecoder().decode(bytes);
 }
-
-// ============================================================
-// ПАРОЛЬ — SHA-256
-// ============================================================
 async function hashPassword(password) {
   const data = new TextEncoder().encode(password + 'taxi_salt_v1');
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
-
 async function verifyPassword(password, hash) {
   return (await hashPassword(password)) === hash;
 }
-
-// ============================================================
-// JWT — UTF-8 SAFE
-// ============================================================
 async function createJWT(payload, secret) {
   const header = { alg: 'HS256', typ: 'JWT' };
   const now = Math.floor(Date.now() / 1000);
@@ -56,7 +46,6 @@ async function createJWT(payload, secret) {
   const sigB64 = btoa(sigBinary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   return `${data}.${sigB64}`;
 }
-
 async function verifyJWT(token, secret) {
   try {
     const [headerB64, bodyB64, sigB64] = token.split('.');
@@ -72,15 +61,6 @@ async function verifyJWT(token, secret) {
 }
 
 // ============================================================
-// НОЧНОЙ ТАРИФ
-// ============================================================
-function isNightTime() {
-  const now = new Date();
-  const hour = (now.getUTCHours() + 5) % 24;
-  return hour >= 0 && hour < 6;
-}
-
-// ============================================================
 // MIDDLEWARE
 // ============================================================
 async function authRequired(c, next) {
@@ -93,14 +73,13 @@ async function authRequired(c, next) {
   c.set('role', payload.role);
   await next();
 }
-
 async function adminRequired(c, next) {
   if (c.get('role') !== 'admin') return c.json({ error: 'Доступ запрещён' }, 403);
   await next();
 }
 
 // ============================================================
-// ОПРЕДЕЛЕНИЕ ЦЕНЫ
+// ЦЕНЫ
 // ============================================================
 async function calculatePrice(db, address) {
   if (!address) return { price: 0, type: 'local', found: false };
@@ -145,11 +124,10 @@ app.post('/api/auth/register', async (c) => {
     if (!['client', 'driver'].includes(role)) return c.json({ error: 'Роль: client или driver' }, 400);
 
     const existing = await c.env.DB.prepare('SELECT id FROM taxi_users WHERE username = ? AND password_hash = ?').bind(username.trim(), await hashPassword(password)).first();
-    if (existing) return c.json({ error: 'Пользователь с таким именем и паролем уже существует. Выберите другой пароль.' }, 400);
+    if (existing) return c.json({ error: 'Пользователь с таким именем и паролем уже существует.' }, 400);
 
     const hash = await hashPassword(password);
     const status = role === 'driver' ? 'pending' : 'active';
-    
     const result = await c.env.DB.prepare(
       `INSERT INTO taxi_users (username, password_hash, role, phone, car_model, car_number, status) VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id, username, role, status`
     ).bind(username.trim(), hash, role, phone || null, car_model || null, car_number || null, status).first();
@@ -162,20 +140,25 @@ app.post('/api/auth/register', async (c) => {
 app.post('/api/auth/login', async (c) => {
   try {
     const { username, password } = await c.req.json();
-    const user = await c.env.DB.prepare('SELECT id, username, password_hash, role, status, avatar_url FROM taxi_users WHERE username = ?').bind(username?.trim()).first();
-    if (!user) return c.json({ error: 'Неверное имя или пароль' }, 401);
-    const valid = await verifyPassword(password, user.password_hash);
-    if (!valid) return c.json({ error: 'Неверное имя или пароль' }, 401);
-    if (user.status === 'blocked') return c.json({ error: 'Аккаунт заблокирован' }, 403);
-    if (user.status === 'pending') return c.json({ error: 'Аккаунт на модерации', pending: true }, 403);
+    const users = await c.env.DB.prepare('SELECT id, username, password_hash, role, status, avatar_url FROM taxi_users WHERE username = ?').bind(username?.trim()).all();
+    if (!users.results || users.results.length === 0) return c.json({ error: 'Неверное имя или пароль' }, 401);
 
-    const token = await createJWT({ id: user.id, username: user.username, role: user.role }, c.env.JWT_SECRET || 'taxi-secret-key-change');
-    return c.json({ token, user: { id: user.id, username: user.username, role: user.role, avatar_url: user.avatar_url } });
+    let matchedUser = null;
+    for (const u of users.results) {
+      if (await verifyPassword(password, u.password_hash)) { matchedUser = u; break; }
+    }
+
+    if (!matchedUser) return c.json({ error: 'Неверное имя или пароль' }, 401);
+    if (matchedUser.status === 'blocked') return c.json({ error: 'Заблокирован' }, 403);
+    if (matchedUser.status === 'pending') return c.json({ error: 'На модерации', pending: true }, 403);
+
+    const token = await createJWT({ id: matchedUser.id, username: matchedUser.username, role: matchedUser.role }, c.env.JWT_SECRET || 'taxi-secret-key-change');
+    return c.json({ token, user: { id: matchedUser.id, username: matchedUser.username, role: matchedUser.role, avatar_url: matchedUser.avatar_url } });
   } catch (err) { return c.json({ error: 'Ошибка входа' }, 500); }
 });
 
 app.get('/api/auth/me', authRequired, async (c) => {
-  const user = await c.env.DB.prepare('SELECT id, username, role, phone, car_model, car_number, status, is_online, is_on_shift, accepts_delivery, queue_position, avatar_url, car_photo_url FROM taxi_users WHERE id = ?').bind(c.get('userId')).first();
+  const user = await c.env.DB.prepare('SELECT * FROM taxi_users WHERE id = ?').bind(c.get('userId')).first();
   if (!user) return c.json({ error: 'Не найден' }, 404);
   return c.json(user);
 });
@@ -201,6 +184,14 @@ app.post('/api/auth/change-username', authRequired, async (c) => {
   } catch (err) { return c.json({ error: 'Ошибка' }, 500); }
 });
 
+app.post('/api/auth/avatar', authRequired, async (c) => {
+  try {
+    const { image } = await c.req.json();
+    await c.env.DB.prepare('UPDATE taxi_users SET avatar_url = ? WHERE id = ?').bind(image, c.get('userId')).run();
+    return c.json({ success: true, avatar_url: image });
+  } catch (err) { return c.json({ error: 'Ошибка' }, 500); }
+});
+
 // ============================================================
 // ФОТО В R2
 // ============================================================
@@ -210,26 +201,30 @@ app.post('/api/driver/car-photo', authRequired, async (c) => {
     const formData = await c.req.formData();
     const file = formData.get('photo');
     if (!file || !(file instanceof File)) return c.json({ error: 'Файл не найден' }, 400);
-
     const ext = file.name.split('.').pop() || 'jpg';
     const key = `car_${c.get('userId')}_${Date.now()}.${ext}`;
-
     await c.env.CARS_BUCKET.put(key, file.stream(), { httpMetadata: { contentType: file.type } });
     const photoUrl = `/api/car-photo/${key}`;
     await c.env.DB.prepare('UPDATE taxi_users SET car_photo_url = ? WHERE id = ?').bind(photoUrl, c.get('userId')).run();
-
     return c.json({ success: true, car_photo_url: photoUrl });
-  } catch (err) { return c.json({ error: 'Ошибка загрузки' }, 500); }
+  } catch (err) { return c.json({ error: 'Ошибка' }, 500); }
 });
 
 app.get('/api/car-photo/:key', async (c) => {
   const object = await c.env.CARS_BUCKET.get(c.req.param('key'));
   if (!object) return c.json({ error: 'Photo not found' }, 404);
-  return new Response(object.body, { headers: { 'Content-Type': object.httpMetadata?.contentType || 'image/jpeg', 'Cache-Control': 'public, max-age=31536000' } });
+  return new Response(object.body, { headers: { 'Content-Type': object.httpMetadata?.contentType || 'image/jpeg' } });
+});
+
+app.post('/api/driver/car', authRequired, async (c) => {
+  if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
+  const { car_model, car_number } = await c.req.json();
+  await c.env.DB.prepare('UPDATE taxi_users SET car_model = ?, car_number = ? WHERE id = ?').bind(car_model, car_number, c.get('userId')).run();
+  return c.json({ success: true });
 });
 
 // ============================================================
-// ЗАКАЗЫ (КЛИЕНТ)
+// ЗАКАЗЫ
 // ============================================================
 app.post('/api/orders', authRequired, async (c) => {
   try {
@@ -240,15 +235,14 @@ app.post('/api/orders', authRequired, async (c) => {
     if (order_kind === 'delivery' && (!delivery_item || !delivery_from)) return c.json({ error: 'Введите что и откуда доставить' }, 400);
 
     const priceInfo = await calculatePrice(c.env.DB, address_to);
-    if (!priceInfo.found) return c.json({ error: 'Не могу определить цену по адресу.' }, 400);
+    if (!priceInfo.found) return c.json({ error: 'Не могу определить цену.' }, 400);
     let finalPrice = priceInfo.price;
-    if (isNightTime() && priceInfo.type === 'long') finalPrice += 100;
 
     const result = await c.env.DB.prepare(
       `INSERT INTO taxi_orders (client_id, order_kind, order_type, address, address_to, delivery_item, delivery_from, price, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending') RETURNING *`
     ).bind(c.get('userId'), order_kind || 'taxi', priceInfo.type, address || null, address_to.trim(), delivery_item || null, delivery_from || null, finalPrice).first();
     return c.json(result);
-  } catch (err) { return c.json({ error: 'Ошибка создания' }, 500); }
+  } catch (err) { return c.json({ error: 'Ошибка' }, 500); }
 });
 
 app.get('/api/orders/my-active', authRequired, async (c) => {
@@ -256,6 +250,14 @@ app.get('/api/orders/my-active', authRequired, async (c) => {
     `SELECT o.*, d.username AS driver_name, d.phone AS driver_phone, d.car_model, d.car_number, d.car_photo_url FROM taxi_orders o LEFT JOIN taxi_users d ON d.id = o.driver_id WHERE o.client_id = ? AND o.status IN ('pending', 'accepted', 'on_way', 'waiting') ORDER BY o.created_at DESC LIMIT 1`
   ).bind(c.get('userId')).first();
   return c.json(order || null);
+});
+
+app.get('/api/orders/my-history', authRequired, async (c) => {
+  if (c.get('role') !== 'client') return c.json({ error: 'Только клиенты' }, 403);
+  const orders = await c.env.DB.prepare(
+    `SELECT o.*, d.username AS driver_name FROM taxi_orders o LEFT JOIN taxi_users d ON d.id = o.driver_id WHERE o.client_id = ? AND o.status IN ('completed', 'cancelled') ORDER BY o.created_at DESC LIMIT 50`
+  ).bind(c.get('userId')).all();
+  return c.json(orders.results || []);
 });
 
 app.post('/api/orders/:id/cancel', authRequired, async (c) => {
@@ -266,7 +268,7 @@ app.post('/api/orders/:id/cancel', authRequired, async (c) => {
 });
 
 // ============================================================
-// ЗАКАЗЫ (ВОДИТЕЛЬ)
+// ВОДИТЕЛЬ
 // ============================================================
 app.post('/api/driver/shift', authRequired, async (c) => {
   if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
@@ -285,13 +287,6 @@ app.post('/api/driver/delivery', authRequired, async (c) => {
   if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
   const { accepts_delivery } = await c.req.json();
   await c.env.DB.prepare('UPDATE taxi_users SET accepts_delivery = ? WHERE id = ?').bind(accepts_delivery ? 1 : 0, c.get('userId')).run();
-  return c.json({ success: true });
-});
-
-app.post('/api/driver/car', authRequired, async (c) => {
-  if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
-  const { car_model, car_number } = await c.req.json();
-  await c.env.DB.prepare('UPDATE taxi_users SET car_model = ?, car_number = ? WHERE id = ?').bind(car_model, car_number, c.get('userId')).run();
   return c.json({ success: true });
 });
 
@@ -318,6 +313,25 @@ app.get('/api/driver/my-order', authRequired, async (c) => {
     }
   }
   return c.json({ order: null, type: 'idle' });
+});
+
+app.get('/api/driver/my-history', authRequired, async (c) => {
+  if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
+  const orders = await c.env.DB.prepare(
+    `SELECT o.*, u.username AS client_name FROM taxi_orders o JOIN taxi_users u ON u.id = o.client_id WHERE o.driver_id = ? AND o.status = 'completed' ORDER BY o.completed_at DESC LIMIT 50`
+  ).bind(c.get('userId')).all();
+
+  const stats = await c.env.DB.prepare(`
+    SELECT 
+      SUM(CASE WHEN date(completed_at) = date('now') THEN price ELSE 0 END) AS today,
+      SUM(CASE WHEN completed_at >= date('now', '-7 days') THEN price ELSE 0 END) AS week,
+      SUM(CASE WHEN completed_at >= date('now', '-30 days') THEN price ELSE 0 END) AS month,
+      SUM(price) AS all_time
+    FROM taxi_orders 
+    WHERE driver_id = ? AND status = 'completed'
+  `).bind(c.get('userId')).first();
+
+  return c.json({ orders: orders.results || [], stats });
 });
 
 app.post('/api/orders/:id/accept', authRequired, async (c) => {
@@ -416,9 +430,35 @@ app.delete('/api/admin/drivers/:id', authRequired, adminRequired, async (c) => {
   return c.json({ success: true });
 });
 
-// ============================================================
-// УПРАВЛЕНИЕ АДМИНАМИ
-// ============================================================
+app.get('/api/admin/stats', authRequired, adminRequired, async (c) => {
+  const todayOrders = await c.env.DB.prepare(`SELECT COUNT(*) as c FROM taxi_orders WHERE date(created_at) = date('now')`).first();
+  const todayCompleted = await c.env.DB.prepare(`SELECT COUNT(*) as c FROM taxi_orders WHERE date(completed_at) = date('now') AND status = 'completed'`).first();
+  const onShift = await c.env.DB.prepare(`SELECT COUNT(*) as c FROM taxi_users WHERE role = 'driver' AND is_on_shift = 1`).first();
+  const revenueToday = await c.env.DB.prepare(`SELECT SUM(price) as s FROM taxi_orders WHERE date(completed_at) = date('now') AND status = 'completed'`).first();
+  const revenueAll = await c.env.DB.prepare(`SELECT SUM(price) as s FROM taxi_orders WHERE status = 'completed'`).first();
+
+  return c.json({
+    ordersToday: todayOrders.c || 0,
+    completedToday: todayCompleted.c || 0,
+    driversOnShift: onShift.c || 0,
+    revenueToday: revenueToday.s || 0,
+    revenueAll: revenueAll.s || 0
+  });
+});
+
+app.get('/api/admin/prices', authRequired, adminRequired, async (c) => {
+  const streets = await c.env.DB.prepare('SELECT * FROM taxi_streets ORDER BY display_name ASC').all();
+  const locations = await c.env.DB.prepare('SELECT * FROM taxi_locations ORDER BY display_name ASC').all();
+  return c.json({ streets: streets.results || [], locations: locations.results || [] });
+});
+
+app.post('/api/admin/prices/update', authRequired, adminRequired, async (c) => {
+  const { type, id, price } = await c.req.json();
+  const table = type === 'street' ? 'taxi_streets' : 'taxi_locations';
+  await c.env.DB.prepare(`UPDATE ${table} SET price = ? WHERE id = ?`).bind(price, id).run();
+  return c.json({ success: true });
+});
+
 app.get('/api/admin/admins', authRequired, adminRequired, async (c) => {
   const admins = await c.env.DB.prepare('SELECT id, username, created_at FROM taxi_users WHERE role = ? ORDER BY id ASC').bind('admin').all();
   return c.json(admins.results || []);
@@ -429,14 +469,12 @@ app.post('/api/admin/admins', authRequired, adminRequired, async (c) => {
     const { username, password } = await c.req.json();
     if (!username || username.trim().length < 2) return c.json({ error: 'Имя минимум 2 символа' }, 400);
     if (!password || !/^\d{4}$/.test(password)) return c.json({ error: 'Пароль — ровно 4 цифры' }, 400);
-
     const existing = await c.env.DB.prepare('SELECT id FROM taxi_users WHERE username = ? AND password_hash = ?').bind(username.trim(), await hashPassword(password)).first();
     if (existing) return c.json({ error: 'Такой админ уже существует' }, 400);
-
     const hash = await hashPassword(password);
     const result = await c.env.DB.prepare(`INSERT INTO taxi_users (username, password_hash, role, status) VALUES (?, ?, 'admin', 'active') RETURNING id, username`).bind(username.trim(), hash).first();
     return c.json(result);
-  } catch (err) { return c.json({ error: 'Ошибка создания' }, 500); }
+  } catch (err) { return c.json({ error: 'Ошибка' }, 500); }
 });
 
 app.delete('/api/admin/admins/:id', authRequired, adminRequired, async (c) => {
