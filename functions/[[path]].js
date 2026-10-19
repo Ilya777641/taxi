@@ -380,12 +380,24 @@ app.post('/api/orders/:id/accept', authRequired, async (c) => {
   if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
   const orderId = c.req.param('id');
   const driverId = c.get('userId');
+  
   const result = await c.env.DB.prepare(
     `UPDATE taxi_orders SET driver_id = ?, status = 'accepted', accepted_at = datetime('now'), assigned_to = NULL WHERE id = ? AND status = 'pending' AND driver_id IS NULL RETURNING *`
   ).bind(driverId, orderId).first();
+  
   if (!result) return c.json({ error: 'Заказ уже занят' }, 409);
+
+  // Пуш клиенту о том, что водитель найден
+  try {
+    const client = await c.env.DB.prepare('SELECT onesignal_id FROM taxi_users WHERE id = ?').bind(result.client_id).first();
+    if (client && client.onesignal_id) {
+      await sendPush(c.env, [client.onesignal_id], '🚖 Водитель найден!', 'Ваш заказ принят. Ожидайте прибытия машины.');
+    }
+  } catch (err) { console.error('PUSH ACCEPT ERROR:', err); }
+
   const max = await c.env.DB.prepare('SELECT COALESCE(MAX(queue_position), 0) AS max_pos FROM taxi_users WHERE role = ? AND is_on_shift = 1').bind('driver').first();
   await c.env.DB.prepare('UPDATE taxi_users SET queue_position = ?, last_order_at = datetime("now") WHERE id = ?').bind((max.max_pos || 0) + 1, driverId).run();
+  
   return c.json(result);
 });
 
@@ -409,9 +421,30 @@ app.post('/api/orders/:id/status', authRequired, async (c) => {
   const { status } = await c.req.json();
   const allowed = ['on_way', 'waiting', 'completed'];
   if (!allowed.includes(status)) return c.json({ error: 'Неверный статус' }, 400);
+  
   const timeField = status === 'on_way' ? 'on_way_at' : status === 'waiting' ? 'waiting_at' : 'completed_at';
-  const result = await c.env.DB.prepare(`UPDATE taxi_orders SET status = ?, ${timeField} = datetime('now') WHERE id = ? AND driver_id = ? AND status IN ('accepted', 'on_way', 'waiting') RETURNING *`).bind(status, orderId, c.get('userId')).first();
+  
+  const result = await c.env.DB.prepare(
+    `UPDATE taxi_orders SET status = ?, ${timeField} = datetime('now') WHERE id = ? AND driver_id = ? AND status IN ('accepted', 'on_way', 'waiting') RETURNING *`
+  ).bind(status, orderId, c.get('userId')).first();
+  
   if (!result) return c.json({ error: 'Не найден' }, 404);
+
+  // Отправляем пуш клиенту на смену статуса
+  try {
+    const client = await c.env.DB.prepare('SELECT onesignal_id FROM taxi_users WHERE id = ?').bind(result.client_id).first();
+    
+    if (client && client.onesignal_id) {
+      const messages = {
+        'on_way': { title: '🚖 Водитель в пути', body: 'Ваш водитель уже выехал за вами!' },
+        'waiting': { title: '📍 Водитель на месте', body: 'Водитель ожидает вас по адресу. Пожалуйста, выходите.' },
+        'completed': { title: '✅ Поездка завершена', body: 'Спасибо за поездку! Будем рады видеть вас снова.' }
+      };
+      const msg = messages[status];
+      if (msg) await sendPush(c.env, [client.onesignal_id], msg.title, msg.body);
+    }
+  } catch (err) { console.error('PUSH STATUS ERROR:', err); }
+
   return c.json(result);
 });
 

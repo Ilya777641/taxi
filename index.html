@@ -25,17 +25,7 @@
         await OneSignal.init({
           appId: "9925559e-4752-4606-8e40-cde229c05958",
           allowLocalhostAsSecureOrigin: true,
-          notifyButton: {
-            enable: true,
-            position: 'bottom-left',
-            size: 'small',
-            theme: 'default',
-            text: {
-              'tip.state.unsubscribed': 'Подписаться на заказы',
-              'tip.state.subscribed': 'Вы подписаны на заказы',
-              'tip.state.blocked': 'Уведомления заблокированы',
-            },
-          },
+          // Убрали notifyButton, так как разрешение запрашивается автоматически в App.jsx
         });
       });
     </script>
