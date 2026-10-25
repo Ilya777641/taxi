@@ -225,36 +225,68 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
                 <div className="empty-state">Ожидание заказов...</div>
               ) : (
                 <div className="order-card">
-                  <div className="order-card-kind" style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>{currentOrder.order_kind === 'taxi' ? '🚖 Такси' : '📦 Доставка'}</span>
+                  
+                  {/* ЗАГОЛОВОК КАРТОЧКИ */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid var(--border)' }}>
+                    <div style={{ fontSize: '18px', fontWeight: 'bold' }}>
+                      {currentOrder.order_kind === 'taxi' ? '🚖 Такси' : '📦 Доставка'}
+                    </div>
                     {currentOrder.scheduled_at && (
-                      <span style={{ color: '#ffb74d', fontSize: '12px', background: 'rgba(255, 152, 0, 0.15)', padding: '2px 8px', borderRadius: '10px' }}>
+                      <div style={{ color: '#ffb74d', fontSize: '13px', background: 'rgba(255, 152, 0, 0.15)', padding: '4px 10px', borderRadius: '12px', fontWeight: 'bold' }}>
                         ⏰ Предзаказ: {new Date(currentOrder.scheduled_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
+                      </div>
                     )}
                   </div>
-                  {currentOrder.order_kind === 'taxi' ? (
-                    <>
-                      <div className="order-row"><span>Откуда:</span> {currentOrder.address}</div>
-                      <div className="order-row"><span>Куда:</span> {currentOrder.address_to}</div>
-                    </>
-                  ) : (
-                    <>
-                      <div className="order-row"><span>Доставить:</span> {currentOrder.delivery_item}</div>
-                      <div className="order-row"><span>Из:</span> {currentOrder.delivery_from}</div>
-                      <div className="order-row"><span>Куда:</span> {currentOrder.address_to}</div>
-                    </>
-                  )}
-                  
+
+                  {/* БЛОК АДРЕСОВ (КАРТОЧКИ) */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
+                    {currentOrder.order_kind === 'taxi' ? (
+                      <>
+                        <div style={{ background: 'var(--black)', padding: '12px', borderRadius: '10px', border: '1px solid var(--border)' }}>
+                          <div style={{ fontSize: '12px', color: 'var(--text-soft)', marginBottom: '4px' }}>📍 Откуда</div>
+                          <div style={{ fontSize: '15px', lineHeight: '1.4' }}>{currentOrder.address}</div>
+                        </div>
+                        <div style={{ background: 'var(--black)', padding: '12px', borderRadius: '10px', border: '1px solid var(--yellow)' }}>
+                          <div style={{ fontSize: '12px', color: 'var(--yellow)', marginBottom: '4px' }}>🏁 Куда</div>
+                          <div style={{ fontSize: '15px', lineHeight: '1.4' }}>{currentOrder.address_to}</div>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div style={{ background: 'var(--black)', padding: '12px', borderRadius: '10px', border: '1px solid var(--border)' }}>
+                          <div style={{ fontSize: '12px', color: 'var(--text-soft)', marginBottom: '4px' }}>📦 Что доставить</div>
+                          <div style={{ fontSize: '15px', lineHeight: '1.4' }}>{currentOrder.delivery_item}</div>
+                        </div>
+                        <div style={{ background: 'var(--black)', padding: '12px', borderRadius: '10px', border: '1px solid var(--border)' }}>
+                          <div style={{ fontSize: '12px', color: 'var(--text-soft)', marginBottom: '4px' }}>🏪 Из магазина</div>
+                          <div style={{ fontSize: '15px', lineHeight: '1.4' }}>{currentOrder.delivery_from}</div>
+                        </div>
+                        <div style={{ background: 'var(--black)', padding: '12px', borderRadius: '10px', border: '1px solid var(--yellow)' }}>
+                          <div style={{ fontSize: '12px', color: 'var(--yellow)', marginBottom: '4px' }}>🏁 Куда</div>
+                          <div style={{ fontSize: '15px', lineHeight: '1.4' }}>{currentOrder.address_to}</div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* КОММЕНТАРИЙ */}
                   {currentOrder.comment && (
-                    <div style={{ padding: '10px', background: 'rgba(255, 215, 0, 0.1)', borderLeft: '4px solid var(--yellow)', borderRadius: '4px', margin: '8px 0' }}>
-                      <div style={{ fontSize: '12px', color: 'var(--text-soft)', marginBottom: '4px' }}>Комментарий клиента:</div>
-                      <div style={{ fontSize: '15px', color: 'var(--text)', fontWeight: 'bold' }}>💬 {currentOrder.comment}</div>
+                    <div style={{ padding: '12px', background: 'rgba(255, 215, 0, 0.1)', borderLeft: '4px solid var(--yellow)', borderRadius: '8px', marginBottom: '16px' }}>
+                      <div style={{ fontSize: '12px', color: 'var(--text-soft)', marginBottom: '4px' }}>💬 Комментарий клиента:</div>
+                      <div style={{ fontSize: '15px', color: 'var(--text)', fontWeight: 'bold' }}>{currentOrder.comment}</div>
                     </div>
                   )}
 
-                  <div className="order-row"><span>Клиент:</span> {currentOrder.client_name}</div>
+                  {/* БЛОК КЛИЕНТА */}
+                  <div style={{ background: 'var(--black)', padding: '12px', borderRadius: '10px', border: '1px solid var(--border)', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-soft)', marginBottom: '2px' }}>Клиент</div>
+                      <div style={{ fontSize: '16px', fontWeight: 'bold' }}>{currentOrder.client_name}</div>
+                    </div>
+                    <div style={{ fontSize: '20px', fontWeight: 'bold', color: 'var(--yellow)' }}>{currentOrder.price} ₽</div>
+                  </div>
                   
+                  {/* КНОПКА ПОЗВОНИТЬ */}
                   {currentOrder.client_phone && (
                     <a 
                       href={`tel:${currentOrder.client_phone}`} 
@@ -266,7 +298,7 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
                         gap: '10px', 
                         padding: '16px', 
                         fontSize: '18px', 
-                        marginTop: '10px',
+                        marginBottom: '15px',
                         textDecoration: 'none',
                         fontWeight: 'bold',
                         boxShadow: '0 4px 15px rgba(76, 175, 80, 0.3)'
@@ -276,12 +308,10 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
                     </a>
                   )}
 
-                  <div className="order-row" style={{ marginTop: '10px' }}><span>Цена:</span> <strong>{currentOrder.price} ₽</strong></div>
-
+                  {/* КНОПКА МАРШРУТА */}
                   <button 
                     className="btn-primary" 
                     style={{ 
-                      marginTop: '15px', 
                       marginBottom: '15px',
                       width: '100%', 
                       padding: '16px', 
@@ -298,17 +328,17 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
                   </button>
 
                   {orderType === 'assigned' && (
-                    <div className="order-buttons">
-                      <button className="btn-primary" onClick={acceptOrder} disabled={loading}>✅ Принять</button>
-                      <button className="btn-secondary" onClick={declineOrder} disabled={loading}>❌ Отказаться</button>
+                    <div className="order-buttons" style={{ display: 'flex', gap: '10px' }}>
+                      <button className="btn-primary" onClick={acceptOrder} disabled={loading} style={{ flex: 1 }}>✅ Принять</button>
+                      <button className="btn-secondary" onClick={declineOrder} disabled={loading} style={{ flex: 1 }}>❌ Отказаться</button>
                     </div>
                   )}
 
                   {orderType === 'active' && (
                     <div className="order-buttons">
-                      {currentOrder.status === 'accepted' && <button className="btn-primary" onClick={() => setStatus('on_way')} disabled={loading}>🚗 В путь</button>}
-                      {currentOrder.status === 'on_way' && <button className="btn-primary" onClick={() => setStatus('waiting')} disabled={loading}>⏰ Ожидаю</button>}
-                      {currentOrder.status === 'waiting' && <button className="btn-success" onClick={() => setStatus('completed')} disabled={loading}>✅ Завершить</button>}
+                      {currentOrder.status === 'accepted' && <button className="btn-primary" onClick={() => setStatus('on_way')} disabled={loading} style={{ width: '100%', padding: '16px', fontSize: '18px' }}>🚗 В путь</button>}
+                      {currentOrder.status === 'on_way' && <button className="btn-primary" onClick={() => setStatus('waiting')} disabled={loading} style={{ width: '100%', padding: '16px', fontSize: '18px' }}>⏰ Ожидаю</button>}
+                      {currentOrder.status === 'waiting' && <button className="btn-success" onClick={() => setStatus('completed')} disabled={loading} style={{ width: '100%', padding: '16px', fontSize: '18px' }}>✅ Завершить</button>}
                     </div>
                   )}
                 </div>
