@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import AccountSettings from './AccountSettings';
-import { YANDEX_GEO_KEY } from '../config'; // Импортируем ключ геокодера
+import { YANDEX_GEO_KEY } from '../config';
 
 const POLL_INTERVAL = 3000;
 
@@ -111,7 +111,6 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
     setLoading(false);
   };
 
-  // ФУНКЦИЯ ГЕОКОДИРОВАНИЯ (получаем координаты по адресу)
   const getCoords = async (address) => {
     if (!address) return null;
     try {
@@ -119,16 +118,13 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
       const data = await res.json();
       const member = data.response?.GeoObjectCollection?.featureMember?.[0];
       if (!member) return null;
-      // Координаты приходят в формате "долгота широта"
       const [lon, lat] = member.GeoObject.Point.pos.split(' ');
       return { lat: parseFloat(lat), lon: parseFloat(lon) };
     } catch (e) {
-      console.error('Geocode error:', e);
       return null;
     }
   };
 
-  // ОТКРЫТИЕ НАВИГАЦИИ С КООРДИНАТАМИ
   const openInApp = async (app) => {
     if (!currentOrder) return;
     setGeocoding(true);
@@ -136,7 +132,6 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
     const fromText = currentOrder.address || currentOrder.delivery_from;
     const toText = currentOrder.address_to;
 
-    // Получаем координаты для обеих точек
     const fromCoords = await getCoords(fromText);
     const toCoords = await getCoords(toText);
 
@@ -146,17 +141,13 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
     let url = '';
 
     if (app === 'yandex') {
-      // Яндекс.Карты: если есть координаты, используем их, иначе текст
       const fromStr = fromCoords ? `${fromCoords.lon},${fromCoords.lat}` : encodeURIComponent(fromText);
       const toStr = toCoords ? `${toCoords.lon},${toCoords.lat}` : encodeURIComponent(toText);
       url = `yandexmaps://maps.yandex.ru/?rtext=${fromStr}~${toStr}&rtt=auto`;
     } else if (app === '2gis') {
-      // 2ГИС ТРЕБУЕТ КООРДИНАТЫ [citation:2]
       if (fromCoords && toCoords) {
-        // Формат: dgis://2gis.ru/routeSearch/rsType/car/from/lon,lat/to/lon,lat
         url = `dgis://2gis.ru/routeSearch/rsType/car/from/${fromCoords.lon},${fromCoords.lat}/to/${toCoords.lon},${toCoords.lat}`;
       } else {
-        // Если координаты не нашлись, открываем просто точку Б (от текущего местоположения)
         if (toCoords) {
           url = `dgis://2gis.ru/routeSearch/rsType/car/to/${toCoords.lon},${toCoords.lat}`;
         } else {
@@ -165,7 +156,6 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
         }
       }
     } else if (app === 'google') {
-      // Google Maps: используем координаты, если есть, иначе текст
       const fromStr = fromCoords ? `${fromCoords.lat},${fromCoords.lon}` : encodeURIComponent(fromText);
       const toStr = toCoords ? `${toCoords.lat},${toCoords.lon}` : encodeURIComponent(toText);
       url = `https://www.google.com/maps/dir/?api=1&origin=${fromStr}&destination=${toStr}&travelmode=driving`;
@@ -173,8 +163,6 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
 
     if (url) {
       window.location.href = url;
-      
-      // Фоллбек на веб-версию, если приложение не открылось
       setTimeout(() => {
         if (app === 'yandex') {
           const fromStr = fromCoords ? `${fromCoords.lon},${fromCoords.lat}` : encodeURIComponent(fromText);
@@ -250,9 +238,40 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
                       <div className="order-row"><span>Куда:</span> {currentOrder.address_to}</div>
                     </>
                   )}
+                  
+                  {/* НОВЫЙ БЛОК: Отображение комментария */}
+                  {currentOrder.comment && (
+                    <div style={{ padding: '10px', background: 'rgba(255, 215, 0, 0.1)', borderLeft: '4px solid var(--yellow)', borderRadius: '4px', margin: '8px 0' }}>
+                      <div style={{ fontSize: '12px', color: 'var(--text-soft)', marginBottom: '4px' }}>Комментарий клиента:</div>
+                      <div style={{ fontSize: '15px', color: 'var(--text)', fontWeight: 'bold' }}>💬 {currentOrder.comment}</div>
+                    </div>
+                  )}
+
                   <div className="order-row"><span>Клиент:</span> {currentOrder.client_name}</div>
-                  {currentOrder.client_phone && <div className="order-row"><span>Телефон:</span> <a href={`tel:${currentOrder.client_phone}`}>📞 {currentOrder.client_phone}</a></div>}
-                  <div className="order-row"><span>Цена:</span> <strong>{currentOrder.price} ₽</strong></div>
+                  
+                  {/* НОВАЯ БОЛЬШАЯ КНОПКА ПОЗВОНИТЬ */}
+                  {currentOrder.client_phone && (
+                    <a 
+                      href={`tel:${currentOrder.client_phone}`} 
+                      className="btn-success" 
+                      style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'center', 
+                        gap: '10px', 
+                        padding: '16px', 
+                        fontSize: '18px', 
+                        marginTop: '10px',
+                        textDecoration: 'none',
+                        fontWeight: 'bold',
+                        boxShadow: '0 4px 15px rgba(76, 175, 80, 0.3)'
+                      }}
+                    >
+                      📞 Позвонить клиенту
+                    </a>
+                  )}
+
+                  <div className="order-row" style={{ marginTop: '10px' }}><span>Цена:</span> <strong>{currentOrder.price} ₽</strong></div>
 
                   <button 
                     className="btn-secondary" 

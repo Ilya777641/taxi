@@ -14,6 +14,7 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
   const [coordsTo, setCoordsTo] = useState(null);
   const [deliveryItem, setDeliveryItem] = useState('');
   const [deliveryFrom, setDeliveryFrom] = useState('');
+  const [comment, setComment] = useState(''); // <--- НОВОЕ ПОЛЕ
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState([]);
@@ -23,7 +24,7 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
   const [showSettings, setShowSettings] = useState(false);
   const [currentUser, setCurrentUser] = useState(user);
 
-  const [tab, setTab] = useState('order'); // 'order' | 'history'
+  const [tab, setTab] = useState('order');
   const [history, setHistory] = useState([]);
 
   const intervalRef = useRef(null);
@@ -91,12 +92,13 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
         address_to: addressTo,
         delivery_item: orderKind === 'delivery' ? deliveryItem : null,
         delivery_from: orderKind === 'delivery' ? deliveryFrom : null,
+        comment: comment.trim() || null, // <--- ПЕРЕДАЕМ КОММЕНТАРИЙ
       };
       const res = await authFetch('/api/orders', { method: 'POST', body: JSON.stringify(body) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setActiveOrder(data);
-      setAddress(''); setAddressTo(''); setDeliveryItem(''); setDeliveryFrom('');
+      setAddress(''); setAddressTo(''); setDeliveryItem(''); setDeliveryFrom(''); setComment('');
     } catch (err) { setError(err.message); }
     setLoading(false);
   };
@@ -157,6 +159,18 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
                 <label>Куда доставить<div className="input-with-map"><input type="text" value={addressTo} onChange={(e) => setAddressTo(e.target.value)} placeholder="ул. Союзная 20" required /><button type="button" className="map-btn" onClick={() => setShowMap('to')}>📍</button></div></label>
               </>
             )}
+            
+            {/* НОВОЕ ПОЛЕ КОММЕНТАРИЯ */}
+            <label>Комментарий водителю (необязательно)
+              <input 
+                type="text" 
+                value={comment} 
+                onChange={(e) => setComment(e.target.value)} 
+                placeholder="Например: 2-й подъезд, код 1234" 
+                maxLength={100}
+              />
+            </label>
+
             {error && <div className="error-box">⚠️ {error}</div>}
             <button type="submit" className="btn-primary" disabled={loading}>{loading ? 'Отправка...' : '🚖 Вызвать такси'}</button>
           </form>
@@ -171,6 +185,7 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
               ) : (
                 <><div className="order-row"><span>Доставить:</span> {activeOrder.delivery_item}</div><div className="order-row"><span>Из:</span> {activeOrder.delivery_from}</div><div className="order-row"><span>Куда:</span> {activeOrder.address_to}</div></>
               )}
+              {activeOrder.comment && <div className="order-row"><span>Комментарий:</span> <i>{activeOrder.comment}</i></div>}
               <div className="order-row"><span>Цена:</span> <strong>{activeOrder.price} ₽</strong></div>
             </div>
             {activeOrder.driver_name && (

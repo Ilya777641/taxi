@@ -270,7 +270,7 @@ app.post('/api/driver/car', authRequired, async (c) => {
 app.post('/api/orders', authRequired, async (c) => {
   try {
     if (c.get('role') !== 'client') return c.json({ error: 'Только клиенты' }, 403);
-    const { order_kind, address, address_to, delivery_item, delivery_from } = await c.req.json();
+    const { order_kind, address, address_to, delivery_item, delivery_from, comment } = await c.req.json();
     if (!address_to || !address_to.trim()) return c.json({ error: 'Введите адрес назначения' }, 400);
     if (order_kind === 'taxi' && (!address || !address.trim())) return c.json({ error: 'Введите адрес откуда' }, 400);
     if (order_kind === 'delivery' && (!delivery_item || !delivery_from)) return c.json({ error: 'Введите что и откуда доставить' }, 400);
@@ -280,8 +280,8 @@ app.post('/api/orders', authRequired, async (c) => {
     let finalPrice = priceInfo.price;
 
     const result = await c.env.DB.prepare(
-      `INSERT INTO taxi_orders (client_id, order_kind, order_type, address, address_to, delivery_item, delivery_from, price, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending') RETURNING *`
-    ).bind(c.get('userId'), order_kind || 'taxi', priceInfo.type, address || null, address_to.trim(), delivery_item || null, delivery_from || null, finalPrice).first();
+      `INSERT INTO taxi_orders (client_id, order_kind, order_type, address, address_to, delivery_item, delivery_from, price, status, comment) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?) RETURNING *`
+    ).bind(c.get('userId'), order_kind || 'taxi', priceInfo.type, address || null, address_to.trim(), delivery_item || null, delivery_from || null, finalPrice, comment || null).first();
 
     // Отправляем push всем водителям на смене
     const drivers = await c.env.DB.prepare('SELECT id FROM taxi_users WHERE role = ? AND is_on_shift = 1').bind('driver').all();
