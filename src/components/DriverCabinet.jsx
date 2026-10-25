@@ -18,7 +18,6 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
   const [showNavChoice, setShowNavChoice] = useState(false);
   const [geocoding, setGeocoding] = useState(false);
 
-  // НОВЫЕ СТЕЙТЫ ДЛЯ ОТМЕНЫ
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelLoading, setCancelLoading] = useState(false);
@@ -116,7 +115,6 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
     setLoading(false);
   };
 
-  // ОТМЕНА ЗАКАЗА ВОДИТЕЛЕМ
   const handleDriverCancel = async () => {
     if (!cancelReason.trim()) return alert('Введите причину отмены');
     setCancelLoading(true);
@@ -153,15 +151,53 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
     }
   };
 
+  const getUserLocation = () => {
+    return new Promise((resolve) => {
+      if (!navigator.geolocation) {
+        resolve(null);
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          resolve({
+            lat: position.coords.latitude,
+            lon: position.coords.longitude,
+          });
+        },
+        (error) => {
+          console.warn('Ошибка геолокации:', error);
+          resolve(null);
+        },
+        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+      );
+    });
+  };
+
   const openInApp = async (app) => {
     if (!currentOrder) return;
     setGeocoding(true);
 
-    const fromText = currentOrder.address || currentOrder.delivery_from;
-    const toText = currentOrder.address_to;
+    // Логика выбора точек:
+    // Если статус 'assigned' (новый) или 'accepted' (принят, но еще не в пути) — едем к клиенту.
+    // Если статус 'on_way' (в пути) или 'waiting' (ожидает) — едем от клиента до точки Б.
+    
+    const isGoingToClient = ['assigned', 'accepted'].includes(currentOrder.status) || orderType === 'assigned';
+    
+    let fromText, toText;
+    
+    if (isGoingToClient) {
+      // Едем к клиенту (точка А)
+      fromText = null; // Здесь будет геопозиция водителя, если получится
+      toText = currentOrder.address || currentOrder.delivery_from;
+    } else {
+      // Едем от клиента (точка А) до точки Б
+      fromText = currentOrder.address || currentOrder.delivery_from;
+      toText = currentOrder.address_to;
+    }
 
-    const fromCoords = await getCoords(fromText);
+    const fromCoords = fromText ? await getCoords(fromText) : null;
     const toCoords = await getCoords(toText);
+    const userCoords = await getUserLocation();
 
     setGeocoding(false);
     setShowNavChoice(false);
@@ -169,35 +205,62 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
     let url = '';
 
     if (app === 'yandex') {
-      const fromStr = fromCoords ? `${fromCoords.lon},${fromCoords.lat}` : encodeURIComponent(fromText);
-      const toStr = toCoords ? `${toCoords.lon},${toCoords.lat}` : encodeURIComponent(toText);
-      url = `yandexmaps://maps.yandex.ru/?rtext=${fromStr}~${toStr}&rtt=auto`;
-    } else if (app === '2gis') {
-      if (fromCoords && toCoords) {
-        url = `dgis://2gis.ru/routeSearch/rsType/car/from/${fromCoords.lon},${fromCoords.lat}/to/${toCoords.lon},${toCoords.lat}`;
+      let startPoint;
+      if (isGoingToClient && userCoords) {
+        startPoint = `${userCoords.lon},${userCoords.lat}`; // От водителя
+      } else if (fromCoords) {
+        startPoint = `${fromCoords.lon},${fromCoords.lat}`; // От адреса (или от клиента)
       } else {
-        if (toCoords) {
-          url = `dgis://2gis.ru/routeSearch/rsType/car/to/${toCoords.lon},${toCoords.lat}`;
-        } else {
-          alert('Не удалось определить координаты для 2ГИС. Попробуйте Яндекс или Google.');
-          return;
-        }
+        startPoint = encodeURIComponent(fromText || '');
+      }
+      
+      const endPoint = toCoords ? `${toCoords.lon},${toCoords.lat}` : encodeURIComponent(toText);
+      url = `yandexmaps://maps.yandex.ru/?rtext=${startPoint}~${endPoint}&rtt=auto`;
+    } else if (app === '2gis') {
+      if (isGoingToClient && userCoords && toCoords) {
+        url = `dgis://2gis.ru/routeSearch/rsType/car/from/${userCoords.lon},${userCoords.lat}/to/${toCoords.lon},${toCoords.lat}`;
+      } else if (fromCoords && toCoords) {
+        url = `dgis://2gis.ru/routeSearch/rsType/car/from/${fromCoords.lon},${fromCoords.lat}/to/${toCoords.lon},${toCoords.lat}`;
+      } else if (toCoords) {
+        url = `dgis://2gis.ru/routeSearch/rsType/car/to/${toCoords.lon},${toCoords.lat}`;
+      } else {
+        alert('Не удалось определить координаты для 2ГИС.');
+        return;
       }
     } else if (app === 'google') {
-      const fromStr = fromCoords ? `${fromCoords.lat},${fromCoords.lon}` : encodeURIComponent(fromText);
-      const toStr = toCoords ? `${toCoords.lat},${toCoords.lon}` : encodeURIComponent(toText);
-      url = `https://www.google.com/maps/dir/?api=1&origin=${fromStr}&destination=${toStr}&travelmode=driving`;
+      let startPoint;
+      if (isGoingToClient && userCoords) {
+        startPoint = `${userCoords.lat},${userCoords.lon}`; // От водителя
+      } else if (fromCoords) {
+        startPoint = `${fromCoords.lat},${fromCoords.lon}`;
+      } else {
+        startPoint = encodeURIComponent(fromText || '');
+      }
+      
+      const endPoint = toCoords ? `${toCoords.lat},${toCoords.lon}` : encodeURIComponent(toText);
+      url = `https://www.google.com/maps/dir/?api=1&origin=${startPoint}&destination=${endPoint}&travelmode=driving`;
     }
 
     if (url) {
       window.location.href = url;
       setTimeout(() => {
         if (app === 'yandex') {
-          const fromStr = fromCoords ? `${fromCoords.lon},${fromCoords.lat}` : encodeURIComponent(fromText);
-          const toStr = toCoords ? `${toCoords.lon},${toCoords.lat}` : encodeURIComponent(toText);
-          window.open(`https://yandex.ru/maps/?rtext=${fromStr}~${toStr}&rtt=auto`, '_blank');
+          let startPoint;
+          if (isGoingToClient && userCoords) {
+            startPoint = `${userCoords.lon},${userCoords.lat}`;
+          } else if (fromCoords) {
+            startPoint = `${fromCoords.lon},${fromCoords.lat}`;
+          } else {
+            startPoint = encodeURIComponent(fromText || '');
+          }
+          const endPoint = toCoords ? `${toCoords.lon},${toCoords.lat}` : encodeURIComponent(toText);
+          window.open(`https://yandex.ru/maps/?rtext=${startPoint}~${endPoint}&rtt=auto`, '_blank');
         } else if (app === '2gis') {
-          if (toCoords) {
+          if (isGoingToClient && userCoords && toCoords) {
+            window.open(`https://2gis.ru/routeSearch/rsType/car/from/${userCoords.lon},${userCoords.lat}/to/${toCoords.lon},${toCoords.lat}`, '_blank');
+          } else if (fromCoords && toCoords) {
+            window.open(`https://2gis.ru/routeSearch/rsType/car/from/${fromCoords.lon},${fromCoords.lat}/to/${toCoords.lon},${toCoords.lat}`, '_blank');
+          } else if (toCoords) {
             window.open(`https://2gis.ru/routeSearch/rsType/car/to/${toCoords.lon},${toCoords.lat}`, '_blank');
           } else {
             window.open(`https://2gis.ru/`, '_blank');
@@ -269,7 +332,7 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
                     {currentOrder.order_kind === 'taxi' ? (
                       <>
                         <div style={{ background: 'var(--black)', padding: '12px', borderRadius: '10px', border: '1px solid var(--border)' }}>
-                          <div style={{ fontSize: '12px', color: 'var(--text-soft)', marginBottom: '4px' }}>📍 Откуда</div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-soft)', marginBottom: '4px' }}>📍 Откуда (Клиент)</div>
                           <div style={{ fontSize: '15px', lineHeight: '1.4' }}>{currentOrder.address}</div>
                         </div>
                         <div style={{ background: 'var(--black)', padding: '12px', borderRadius: '10px', border: '1px solid var(--yellow)' }}>
@@ -331,6 +394,7 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
                     </a>
                   )}
 
+                  {/* ДИНАМИЧЕСКАЯ КНОПКА МАРШРУТА */}
                   <button 
                     className="btn-primary" 
                     style={{ 
@@ -346,7 +410,9 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
                     }}
                     onClick={() => setShowNavChoice(true)}
                   >
-                    🗺️ Построить маршрут
+                    {['accepted', 'assigned'].includes(currentOrder.status) || orderType === 'assigned' 
+                      ? '🗺️ Маршрут до клиента' 
+                      : '🗺️ Маршрут до точки Б'}
                   </button>
 
                   {orderType === 'assigned' && (
@@ -424,7 +490,6 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
         </div>
       )}
 
-      {/* МОДАЛЬНОЕ ОКНО ОТМЕНЫ ЗАКАЗА ВОДИТЕЛЕМ */}
       {showCancelModal && (
         <div className="modal-overlay" onClick={() => setShowCancelModal(false)} style={{ zIndex: 1100 }}>
           <div className="settings-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
