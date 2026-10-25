@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import AccountSettings from './AccountSettings';
+import RouteMap from './RouteMap'; // Импортируем новую карту
 
 const POLL_INTERVAL = 3000;
 
@@ -13,6 +14,9 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
   const [tab, setTab] = useState('work'); // 'work' | 'history'
   const [history, setHistory] = useState([]);
   const [stats, setStats] = useState(null);
+  
+  // Состояние для показа карты маршрута
+  const [showRouteMap, setShowRouteMap] = useState(false);
 
   const intervalRef = useRef(null);
 
@@ -176,6 +180,17 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
                   {currentOrder.client_phone && <div className="order-row"><span>Телефон:</span> <a href={`tel:${currentOrder.client_phone}`}>📞 {currentOrder.client_phone}</a></div>}
                   <div className="order-row"><span>Цена:</span> <strong>{currentOrder.price} ₽</strong></div>
 
+                  {/* Кнопка маршрута */}
+                  {currentOrder.address && currentOrder.address_to && (
+                    <button 
+                      className="btn-secondary" 
+                      style={{ marginTop: '10px', width: '100%', borderColor: 'var(--yellow)', color: 'var(--yellow)' }}
+                      onClick={() => setShowRouteMap(true)}
+                    >
+                      🗺️ Показать маршрут на карте
+                    </button>
+                  )}
+
                   {orderType === 'assigned' && (
                     <div className="order-buttons">
                       <button className="btn-primary" onClick={acceptOrder} disabled={loading}>✅ Принять</button>
@@ -218,7 +233,17 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
           </div>
         )}
       </main>
+      
       {showSettings && <AccountSettings user={currentUser} token={token} authFetch={authFetch} onClose={() => setShowSettings(false)} onLogout={onLogout} onUpdate={setCurrentUser} />}
+      
+      {/* Модалка с картой маршрута */}
+      {showRouteMap && currentOrder && (
+        <RouteMap 
+          fromAddress={currentOrder.address || currentOrder.delivery_from} 
+          toAddress={currentOrder.address_to} 
+          onClose={() => setShowRouteMap(false)} 
+        />
+      )}
     </div>
   );
 }
