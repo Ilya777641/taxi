@@ -69,6 +69,11 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
     poll();
   };
 
+  const unblockDriver = async (id) => {
+    await authFetch(`/api/admin/drivers/${id}/unblock`, { method: 'POST' });
+    poll();
+  };
+
   const deleteDriver = async (id) => {
     if (!window.confirm('Удалить водителя?')) return;
     await authFetch(`/api/admin/drivers/${id}`, { method: 'DELETE' });
@@ -78,6 +83,12 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
   const deleteOrder = async (id) => {
     if (!window.confirm('Удалить заказ?')) return;
     await authFetch(`/api/admin/orders/${id}`, { method: 'DELETE' });
+    poll();
+  };
+
+  const deleteReport = async (id) => {
+    if (!window.confirm('Удалить отчет?')) return;
+    await authFetch(`/api/admin/reports/${id}`, { method: 'DELETE' });
     poll();
   };
 
@@ -247,14 +258,16 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
           <div className="admin-list">
             {reports.length === 0 && <div className="empty-state">Отчетов пока нет</div>}
             {reports.map((r) => (
-              <div key={r.id} onClick={() => setSelectedReport(r)} style={{ cursor: 'pointer', background: 'var(--black-card)', padding: '16px', borderRadius: '14px', border: '1px solid var(--border)', marginBottom: '10px' }}>
-                <div className="item-row">
-                  <span className="item-kind">📄 Отчет #{r.id} от {r.driver_name}</span>
-                  <span className="item-status status-completed">{r.orders_count} заказов</span>
+              <SwipeableItem key={r.id} onDelete={() => deleteReport(r.id)}>
+                <div onClick={() => setSelectedReport(r)} style={{ cursor: 'pointer', background: 'var(--black-card)', padding: '16px', borderRadius: '14px', border: '1px solid var(--border)' }}>
+                  <div className="item-row">
+                    <span className="item-kind">📄 Отчет #{r.id} от {r.driver_name}</span>
+                    <span className="item-status status-completed">{r.orders_count} заказов</span>
+                  </div>
+                  <div className="item-meta">{new Date(r.created_at).toLocaleString('ru-RU')}</div>
+                  <div className="item-meta" style={{ color: 'var(--yellow)', fontSize: '16px', fontWeight: 'bold' }}>Выручка: {r.total_earnings} ₽</div>
                 </div>
-                <div className="item-meta">{new Date(r.created_at).toLocaleString('ru-RU')}</div>
-                <div className="item-meta" style={{ color: 'var(--yellow)', fontSize: '16px', fontWeight: 'bold' }}>Выручка: {r.total_earnings} ₽</div>
-              </div>
+              </SwipeableItem>
             ))}
           </div>
         )}
@@ -310,28 +323,39 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
 
         {tab === 'drivers' && (
           <div className="admin-list">
-            {drivers.map((d) => (
-              <SwipeableItem key={d.id} onDelete={() => deleteDriver(d.id)} onBlock={() => blockDriver(d.id)}>
-                <div>
-                  <div className="item-row">
-                    <span className="item-kind">{d.is_on_shift ? '🟢' : '⚫'} {d.username}</span>
-                    <span className="item-status">#{d.queue_position}</span>
-                  </div>
-                  
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '5px' }}>
-                    <span style={{ color: getRatingColor(d.rating), fontSize: '18px', fontWeight: 'bold' }}>
-                      ★ {d.rating ? d.rating.toFixed(1) : '5.0'}
-                    </span>
-                    {d.rating && d.rating < 3.5 && <span style={{ fontSize: '12px', color: '#ff6b6b' }}>(Плохой)</span>}
-                    {d.rating && d.rating >= 3.5 && d.rating < 4.5 && <span style={{ fontSize: '12px', color: '#ffb74d' }}>(Средний)</span>}
-                    {d.rating && d.rating >= 4.5 && <span style={{ fontSize: '12px', color: '#4caf50' }}>(Отличный)</span>}
-                  </div>
+            {drivers.map((d) => {
+              // Определяем, какую кнопку показывать при свайпе
+              const swipeAction = d.status === 'blocked' 
+                ? { text: 'Разблок', color: 'var(--success)', action: () => unblockDriver(d.id) }
+                : { text: 'Блок', color: '#f57c00', action: () => blockDriver(d.id) };
 
-                  <div className="item-meta" style={{ color: 'var(--text)' }}>{getDriverStatus(d)}</div>
-                  <div className="item-meta">{d.car_model} • {d.car_number} {d.accepts_delivery ? '📦 Да' : '📦 Нет'}</div>
-                </div>
-              </SwipeableItem>
-            ))}
+              return (
+                <SwipeableItem 
+                  key={d.id} 
+                  onDelete={() => deleteDriver(d.id)} 
+                  customAction={swipeAction}
+                >
+                  <div>
+                    <div className="item-row">
+                      <span className="item-kind">{d.is_on_shift ? '🟢' : '⚫'} {d.username}</span>
+                      <span className="item-status">#{d.queue_position}</span>
+                    </div>
+                    
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '5px' }}>
+                      <span style={{ color: getRatingColor(d.rating), fontSize: '18px', fontWeight: 'bold' }}>
+                        ★ {d.rating ? d.rating.toFixed(1) : '5.0'}
+                      </span>
+                      {d.rating && d.rating < 3.5 && <span style={{ fontSize: '12px', color: '#ff6b6b' }}>(Плохой)</span>}
+                      {d.rating && d.rating >= 3.5 && d.rating < 4.5 && <span style={{ fontSize: '12px', color: '#ffb74d' }}>(Средний)</span>}
+                      {d.rating && d.rating >= 4.5 && <span style={{ fontSize: '12px', color: '#4caf50' }}>(Отличный)</span>}
+                    </div>
+
+                    <div className="item-meta" style={{ color: 'var(--text)' }}>{getDriverStatus(d)}</div>
+                    <div className="item-meta">{d.car_model} • {d.car_number} {d.accepts_delivery ? '📦 Да' : '📦 Нет'}</div>
+                  </div>
+                </SwipeableItem>
+              );
+            })}
           </div>
         )}
 

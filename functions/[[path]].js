@@ -442,7 +442,6 @@ app.get('/api/driver/my-history', authRequired, async (c) => {
   return c.json({ orders: orders.results || [], stats });
 });
 
-// ОБНОВЛЕННЫЙ РОУТ ОТЧЕТА
 app.post('/api/driver/report', authRequired, async (c) => {
   if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
   
@@ -456,13 +455,10 @@ app.post('/api/driver/report', authRequired, async (c) => {
     const shiftStartMs = new Date(driver.shift_start_at).getTime();
     const shiftEnd = new Date();
     
-    // Получаем ВСЕ выполненные заказы этого водителя (за последние сутки, чтобы не тянуть всю историю)
     const orders = await c.env.DB.prepare(
       `SELECT id, address, address_to, price, completed_at FROM taxi_orders WHERE driver_id = ? AND status = 'completed' AND completed_at >= datetime('now', '-1 day')`
     ).bind(driverId).all();
 
-    // Фильтруем их в JavaScript по времени начала смены. 
-    // Это исключает ошибки с форматами дат в SQLite.
     const validOrders = (orders.results || []).filter(o => {
       const orderTimeMs = new Date(o.completed_at).getTime();
       return orderTimeMs >= shiftStartMs;
@@ -480,16 +476,6 @@ app.post('/api/driver/report', authRequired, async (c) => {
     console.error('REPORT ERROR:', err);
     return c.json({ error: 'Ошибка при создании отчета: ' + err.message }, 500);
   }
-});
-
-// ============================================================
-// РОУТЫ АДМИНА (ОТЧЕТЫ)
-// ============================================================
-app.get('/api/admin/reports', authRequired, adminRequired, async (c) => {
-  const reports = await c.env.DB.prepare(
-    `SELECT r.*, u.username AS driver_name FROM taxi_reports r JOIN taxi_users u ON u.id = r.driver_id ORDER BY r.created_at DESC LIMIT 100`
-  ).all();
-  return c.json(reports.results || []);
 });
 
 app.post('/api/orders/:id/accept', authRequired, async (c) => {
@@ -587,6 +573,12 @@ app.delete('/api/admin/orders/:id', authRequired, adminRequired, async (c) => {
   return c.json({ success: true });
 });
 
+// УДАЛЕНИЕ ОТЧЕТА
+app.delete('/api/admin/reports/:id', authRequired, adminRequired, async (c) => {
+  await c.env.DB.prepare('DELETE FROM taxi_reports WHERE id = ?').bind(c.req.param('id')).run();
+  return c.json({ success: true });
+});
+
 app.get('/api/admin/drivers/pending', authRequired, adminRequired, async (c) => {
   const drivers = await c.env.DB.prepare(`SELECT id, username, phone, car_model, car_number, created_at FROM taxi_users WHERE role = 'driver' AND status = 'pending' ORDER BY created_at DESC`).all();
   return c.json(drivers.results || []);
@@ -605,6 +597,13 @@ app.post('/api/admin/drivers/:id/approve', authRequired, adminRequired, async (c
 
 app.post('/api/admin/drivers/:id/block', authRequired, adminRequired, async (c) => {
   const result = await c.env.DB.prepare(`UPDATE taxi_users SET status = 'blocked', is_on_shift = 0 WHERE id = ? AND role = 'driver' RETURNING id, username, status`).bind(c.req.param('id')).first();
+  if (!result) return c.json({ error: 'Не найден' }, 404);
+  return c.json(result);
+});
+
+// РАЗБЛОКИРОВКА ВОДИТЕЛЯ
+app.post('/api/admin/drivers/:id/unblock', authRequired, adminRequired, async (c) => {
+  const result = await c.env.DB.prepare(`UPDATE taxi_users SET status = 'active' WHERE id = ? AND role = 'driver' RETURNING id, username, status`).bind(c.req.param('id')).first();
   if (!result) return c.json({ error: 'Не найден' }, 404);
   return c.json(result);
 });
