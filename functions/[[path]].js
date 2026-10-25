@@ -283,14 +283,11 @@ app.post('/api/orders', authRequired, async (c) => {
       `INSERT INTO taxi_orders (client_id, order_kind, order_type, address, address_to, delivery_item, delivery_from, price, status, comment, scheduled_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?) RETURNING *`
     ).bind(c.get('userId'), order_kind || 'taxi', priceInfo.type, address || null, address_to.trim(), delivery_item || null, delivery_from || null, finalPrice, comment || null, scheduled_at || null).first();
 
-    // Отправляем push всем водителям на смене, ТОЛЬКО ЕСЛИ ЭТО НЕ ОТЛОЖЕННЫЙ ЗАКАЗ
-    // (Или если он отложен, но до него меньше 30 минут)
     const isScheduled = !!scheduled_at;
     const now = new Date();
     const scheduledDate = isScheduled ? new Date(scheduled_at) : null;
     const timeDiffMinutes = scheduledDate ? (scheduledDate - now) / (1000 * 60) : 0;
     
-    // Если заказ отложенный, и до него больше 30 минут — не спамим водителям сейчас
     if (!isScheduled || timeDiffMinutes <= 30) {
       const drivers = await c.env.DB.prepare('SELECT id FROM taxi_users WHERE role = ? AND is_on_shift = 1').bind('driver').all();
       const driverIds = (drivers.results || []).map(d => d.id);
@@ -326,6 +323,28 @@ app.post('/api/orders/:id/cancel', authRequired, async (c) => {
   return c.json(result);
 });
 
+// НОВЫЙ РОУТ: Отмена заказа водителем с причиной
+app.post('/api/orders/:id/driver-cancel', authRequired, async (c) => {
+  if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
+  const orderId = c.req.param('id');
+  const { reason } = await c.req.json();
+  
+  if (!reason || !reason.trim()) return c.json({ error: 'Укажите причину отмены' }, 400);
+
+  const result = await c.env.DB.prepare(
+    `UPDATE taxi_orders SET status = 'cancelled', completed_at = datetime('now'), cancel_reason = ? WHERE id = ? AND driver_id = ? AND status IN ('accepted', 'on_way', 'waiting') RETURNING *`
+  ).bind(reason.trim(), orderId, c.get('userId')).first();
+  
+  if (!result) return c.json({ error: 'Заказ не найден или уже завершен' }, 404);
+
+  // Пуш клиенту об отмене
+  try {
+    await sendPush(c.env, [result.client_id], '❌ Заказ отменен водителем', `Причина: ${reason.trim()}`);
+  } catch (err) {}
+
+  return c.json(result);
+});
+
 // ============================================================
 // ВОДИТЕЛЬ
 // ============================================================
@@ -349,26 +368,21 @@ app.post('/api/driver/delivery', authRequired, async (c) => {
   return c.json({ success: true });
 });
 
-// ВНИМАНИЕ: Здесь убрана проверка на очередь! Теперь заказ видят все, кто на смене
 app.get('/api/driver/my-order', authRequired, async (c) => {
   if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
   
-  // 1. Проверяем, есть ли у водителя активный заказ
   let order = await c.env.DB.prepare(
     `SELECT o.*, u.username AS client_name, u.phone AS client_phone FROM taxi_orders o JOIN taxi_users u ON u.id = o.client_id WHERE o.driver_id = ? AND o.status IN ('accepted', 'on_way', 'waiting') ORDER BY o.accepted_at DESC LIMIT 1`
   ).bind(c.get('userId')).first();
   if (order) return c.json({ order, type: 'active' });
 
-  // 2. Проверяем, есть ли заказ, назначенный конкретно ему (если используется assigned_to)
   order = await c.env.DB.prepare(
     `SELECT o.*, u.username AS client_name, u.phone AS client_phone FROM taxi_orders o JOIN taxi_users u ON u.id = o.client_id WHERE o.assigned_to = ? AND o.status = 'pending' ORDER BY o.created_at ASC LIMIT 1`
   ).bind(c.get('userId')).first();
   if (order) return c.json({ order, type: 'assigned' });
 
-  // 3. Если водитель на смене и у него нет активного заказа — показываем ему любой свободный заказ
   const me = await c.env.DB.prepare('SELECT is_on_shift FROM taxi_users WHERE id = ?').bind(c.get('userId')).first();
   if (me?.is_on_shift) {
-    // Ищем свободные заказы. Если это предзаказ, показываем его только если до него осталось <= 30 минут!
     const freeOrder = await c.env.DB.prepare(
       `SELECT o.*, u.username AS client_name, u.phone AS client_phone FROM taxi_orders o JOIN taxi_users u ON u.id = o.client_id WHERE o.status = 'pending' AND o.assigned_to IS NULL AND (o.scheduled_at IS NULL OR o.scheduled_at <= datetime('now', '+30 minutes')) ORDER BY o.created_at ASC LIMIT 1`
     ).first();
@@ -411,12 +425,10 @@ app.post('/api/orders/:id/accept', authRequired, async (c) => {
   
   if (!result) return c.json({ error: 'Заказ уже занят' }, 409);
 
-  // Пуш клиенту
   try {
     await sendPush(c.env, [result.client_id], '🚖 Водитель найден!', 'Ваш заказ принят. Ожидайте прибытия машины.');
   } catch (err) { console.error('PUSH ACCEPT ERROR:', err); }
 
-  // Обновляем очередь (чтобы водитель уехал в конец)
   const max = await c.env.DB.prepare('SELECT COALESCE(MAX(queue_position), 0) AS max_pos FROM taxi_users WHERE role = ? AND is_on_shift = 1').bind('driver').first();
   await c.env.DB.prepare('UPDATE taxi_users SET queue_position = ?, last_order_at = datetime("now") WHERE id = ?').bind((max.max_pos || 0) + 1, driverId).run();
   
@@ -452,7 +464,6 @@ app.post('/api/orders/:id/status', authRequired, async (c) => {
   
   if (!result) return c.json({ error: 'Не найден' }, 404);
 
-  // Пуш клиенту
   try {
     const messages = {
       'on_way': { title: '🚖 Водитель в пути', body: 'Ваш водитель уже выехал за вами!' },

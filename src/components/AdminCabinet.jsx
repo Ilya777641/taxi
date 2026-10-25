@@ -214,6 +214,14 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
               <div className="order-row"><span>Клиент:</span> {selectedOrder.client_name}</div>
               {selectedOrder.driver_name && <div className="order-row"><span>Водитель:</span> {selectedOrder.driver_name}</div>}
               <div className="order-row"><span>Цена:</span> <strong>{selectedOrder.price} ₽</strong></div>
+              
+              {/* ОТОБРАЖЕНИЕ ПРИЧИНЫ ОТМЕНЫ */}
+              {selectedOrder.status === 'cancelled' && selectedOrder.cancel_reason && (
+                <div style={{ marginTop: '15px', padding: '10px', background: 'rgba(244, 67, 54, 0.1)', borderLeft: '4px solid var(--danger)', borderRadius: '4px' }}>
+                  <div style={{ fontSize: '12px', color: 'var(--danger)', marginBottom: '4px' }}>Причина отмены (водитель):</div>
+                  <div style={{ fontSize: '15px', color: 'var(--text)' }}>{selectedOrder.cancel_reason}</div>
+                </div>
+              )}
             </div>
             <div className="chat">
               <div className="chat-messages">{messages.map((m) => (<div key={m.id} className={`msg msg-${m.sender_role}`}><div className="msg-author">{m.username}</div><div className="msg-text">{m.text}</div></div>))}</div>

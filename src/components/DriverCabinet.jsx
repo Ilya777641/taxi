@@ -18,6 +18,11 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
   const [showNavChoice, setShowNavChoice] = useState(false);
   const [geocoding, setGeocoding] = useState(false);
 
+  // НОВЫЕ СТЕЙТЫ ДЛЯ ОТМЕНЫ
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
+  const [cancelLoading, setCancelLoading] = useState(false);
+
   const intervalRef = useRef(null);
 
   const poll = async () => {
@@ -109,6 +114,29 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
       if (res.ok) await poll();
     } catch (err) {}
     setLoading(false);
+  };
+
+  // ОТМЕНА ЗАКАЗА ВОДИТЕЛЕМ
+  const handleDriverCancel = async () => {
+    if (!cancelReason.trim()) return alert('Введите причину отмены');
+    setCancelLoading(true);
+    try {
+      const res = await authFetch(`/api/orders/${currentOrder.id}/driver-cancel`, {
+        method: 'POST',
+        body: JSON.stringify({ reason: cancelReason }),
+      });
+      if (res.ok) {
+        setShowCancelModal(false);
+        setCancelReason('');
+        await poll();
+      } else {
+        const data = await res.json();
+        alert(data.error || 'Ошибка отмены');
+      }
+    } catch (err) {
+      alert('Ошибка соединения');
+    }
+    setCancelLoading(false);
   };
 
   const getCoords = async (address) => {
@@ -226,7 +254,6 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
               ) : (
                 <div className="order-card">
                   
-                  {/* ЗАГОЛОВОК КАРТОЧКИ */}
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', paddingBottom: '12px', borderBottom: '1px solid var(--border)' }}>
                     <div style={{ fontSize: '18px', fontWeight: 'bold' }}>
                       {currentOrder.order_kind === 'taxi' ? '🚖 Такси' : '📦 Доставка'}
@@ -238,7 +265,6 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
                     )}
                   </div>
 
-                  {/* БЛОК АДРЕСОВ (КАРТОЧКИ) */}
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '16px' }}>
                     {currentOrder.order_kind === 'taxi' ? (
                       <>
@@ -269,7 +295,6 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
                     )}
                   </div>
 
-                  {/* КОММЕНТАРИЙ */}
                   {currentOrder.comment && (
                     <div style={{ padding: '12px', background: 'rgba(255, 215, 0, 0.1)', borderLeft: '4px solid var(--yellow)', borderRadius: '8px', marginBottom: '16px' }}>
                       <div style={{ fontSize: '12px', color: 'var(--text-soft)', marginBottom: '4px' }}>💬 Комментарий клиента:</div>
@@ -277,7 +302,6 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
                     </div>
                   )}
 
-                  {/* БЛОК КЛИЕНТА */}
                   <div style={{ background: 'var(--black)', padding: '12px', borderRadius: '10px', border: '1px solid var(--border)', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
                       <div style={{ fontSize: '12px', color: 'var(--text-soft)', marginBottom: '2px' }}>Клиент</div>
@@ -286,7 +310,6 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
                     <div style={{ fontSize: '20px', fontWeight: 'bold', color: 'var(--yellow)' }}>{currentOrder.price} ₽</div>
                   </div>
                   
-                  {/* КНОПКА ПОЗВОНИТЬ */}
                   {currentOrder.client_phone && (
                     <a 
                       href={`tel:${currentOrder.client_phone}`} 
@@ -308,7 +331,6 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
                     </a>
                   )}
 
-                  {/* КНОПКА МАРШРУТА */}
                   <button 
                     className="btn-primary" 
                     style={{ 
@@ -335,10 +357,16 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
                   )}
 
                   {orderType === 'active' && (
-                    <div className="order-buttons">
+                    <div className="order-buttons" style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                       {currentOrder.status === 'accepted' && <button className="btn-primary" onClick={() => setStatus('on_way')} disabled={loading} style={{ width: '100%', padding: '16px', fontSize: '18px' }}>🚗 В путь</button>}
                       {currentOrder.status === 'on_way' && <button className="btn-primary" onClick={() => setStatus('waiting')} disabled={loading} style={{ width: '100%', padding: '16px', fontSize: '18px' }}>⏰ Ожидаю</button>}
-                      {currentOrder.status === 'waiting' && <button className="btn-success" onClick={() => setStatus('completed')} disabled={loading} style={{ width: '100%', padding: '16px', fontSize: '18px' }}>✅ Завершить</button>}
+                      
+                      {currentOrder.status === 'waiting' && (
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                          <button className="btn-success" onClick={() => setStatus('completed')} disabled={loading} style={{ flex: 1, padding: '16px', fontSize: '18px' }}>✅ Завершить</button>
+                          <button className="btn-danger" onClick={() => setShowCancelModal(true)} disabled={loading} style={{ flex: 1, padding: '16px', fontSize: '18px', background: 'rgba(244, 67, 54, 0.15)', borderColor: 'var(--danger)', color: '#ff6b6b' }}>❌ Отменить</button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -390,6 +418,35 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
               </button>
               <button className="btn-secondary" onClick={() => setShowNavChoice(false)} disabled={geocoding} style={{ marginTop: '10px' }}>
                 Отмена
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* МОДАЛЬНОЕ ОКНО ОТМЕНЫ ЗАКАЗА ВОДИТЕЛЕМ */}
+      {showCancelModal && (
+        <div className="modal-overlay" onClick={() => setShowCancelModal(false)} style={{ zIndex: 1100 }}>
+          <div className="settings-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '400px' }}>
+            <div className="settings-header">
+              <h2 style={{ fontSize: '18px', color: 'var(--danger)' }}>❌ Отмена заказа</h2>
+              <button className="modal-close" onClick={() => setShowCancelModal(false)}>✕</button>
+            </div>
+            <p style={{ fontSize: '14px', color: 'var(--text-soft)', marginBottom: '15px' }}>
+              Пожалуйста, укажите причину отмены. Клиент получит уведомление, а администратор увидит её в системе.
+            </p>
+            <textarea
+              value={cancelReason}
+              onChange={(e) => setCancelReason(e.target.value)}
+              placeholder="Например: Клиент не выходит на связь, или неверный адрес"
+              style={{ width: '100%', height: '80px', padding: '10px', borderRadius: '10px', background: 'var(--black)', color: 'var(--text)', border: '1px solid var(--border)', marginBottom: '15px', resize: 'none', fontFamily: 'inherit' }}
+            />
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button className="btn-danger" onClick={handleDriverCancel} disabled={cancelLoading} style={{ flex: 1, padding: '14px' }}>
+                {cancelLoading ? 'Отмена...' : 'Подтвердить отмену'}
+              </button>
+              <button className="btn-secondary" onClick={() => setShowCancelModal(false)} disabled={cancelLoading} style={{ flex: 1, padding: '14px' }}>
+                Назад
               </button>
             </div>
           </div>
