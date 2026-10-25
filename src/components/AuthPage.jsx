@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { API_URL } from '../config';
 
 function AuthPage({ onLogin }) {
@@ -13,33 +13,63 @@ function AuthPage({ onLogin }) {
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Стейты для SMS
-  const [smsCode, setSmsCode] = useState('');
-  const [codeSent, setCodeSent] = useState(false);
-  const [sendingCode, setSendingCode] = useState(false);
+  // Стейты для звонка
+  const [callPhone, setCallPhone] = useState(null); // Номер для звонка
+  const [checkId, setCheckId] = useState(null);     // ID проверки
+  const [phoneVerified, setPhoneVerified] = useState(false); // Подтвержден ли номер
+  const [polling, setPolling] = useState(false);    // Ожидание звонка
 
-  const handleSendCode = async () => {
+  // Инициализация звонка при регистрации
+  const handleInitCall = async () => {
     if (!phone || phone.length < 10) {
       setError('Введите корректный номер телефона');
       return;
     }
-    setSendingCode(true);
     setError('');
+    setInfo('');
     try {
-      const res = await fetch(`${API_URL}/api/auth/send-reg-code`, {
+      const res = await fetch(`${API_URL}/api/auth/register/init-call`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phone }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
-      setCodeSent(true);
-      setInfo('Код отправлен на ваш номер');
+
+      setCallPhone(data.call_phone);
+      setCheckId(data.check_id);
+      setPolling(true);
+      setInfo('Позвоните на указанный номер для подтверждения');
     } catch (err) {
       setError(err.message);
     }
-    setSendingCode(false);
   };
+
+  // Автоматическая проверка статуса звонка
+  useEffect(() => {
+    if (!polling || !checkId) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/auth/register/check-status`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ check_id: checkId }),
+        });
+        const data = await res.json();
+
+        if (data.verified) {
+          setPhoneVerified(true);
+          setPolling(false);
+          setInfo('✅ Номер телефона подтвержден! Теперь нажмите "Зарегистрироваться".');
+        }
+      } catch (err) {
+        console.error('Ошибка проверки статуса', err);
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [polling, checkId]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -55,8 +85,8 @@ function AuthPage({ onLogin }) {
       return;
     }
 
-    if (mode === 'register' && !codeSent) {
-      setError('Сначала получите код подтверждения');
+    if (mode === 'register' && !phoneVerified) {
+      setError('Сначала подтвердите номер телефона звонком');
       return;
     }
 
@@ -75,7 +105,7 @@ function AuthPage({ onLogin }) {
             phone,
             car_model: role === 'driver' ? carModel : null,
             car_number: role === 'driver' ? carNumber : null,
-            sms_code: smsCode, // Передаем код
+            check_id: checkId, // Передаем ID успешной проверки
           };
 
       const res = await fetch(url, {
@@ -117,14 +147,14 @@ function AuthPage({ onLogin }) {
           <button
             type="button"
             className={mode === 'login' ? 'active' : ''}
-            onClick={() => { setMode('login'); setError(''); setInfo(''); setCodeSent(false); }}
+            onClick={() => { setMode('login'); setError(''); setInfo(''); setPhoneVerified(false); setCallPhone(null); }}
           >
             Вход
           </button>
           <button
             type="button"
             className={mode === 'register' ? 'active' : ''}
-            onClick={() => { setMode('register'); setError(''); setInfo(''); setCodeSent(false); }}
+            onClick={() => { setMode('register'); setError(''); setInfo(''); setPhoneVerified(false); setCallPhone(null); }}
           >
             Регистрация
           </button>
@@ -183,33 +213,35 @@ function AuthPage({ onLogin }) {
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
                   placeholder="Номер телефона"
-                  disabled={codeSent}
+                  disabled={phoneVerified || polling}
                 />
               </label>
 
-              {!codeSent ? (
+              {!phoneVerified && !callPhone && (
                 <button
                   type="button"
                   className="btn-secondary"
-                  onClick={handleSendCode}
-                  disabled={sendingCode || !phone}
+                  onClick={handleInitCall}
                   style={{ width: '100%', marginBottom: '10px' }}
                 >
-                  {sendingCode ? 'Отправка...' : '📩 Получить код'}
+                  📞 Подтвердить номер звонком
                 </button>
-              ) : (
-                <label className="auth-label">
-                  Код из SMS
-                  <input
-                    type="text"
-                    inputMode="numeric"
-                    maxLength={4}
-                    value={smsCode}
-                    onChange={(e) => setSmsCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                    placeholder="0000"
-                    required
-                  />
-                </label>
+              )}
+
+              {callPhone && !phoneVerified && (
+                <div style={{ textAlign: 'center', marginTop: '10px', background: 'var(--black)', padding: '15px', borderRadius: '10px', border: '1px solid var(--yellow)' }}>
+                  <p style={{ fontSize: '13px', color: 'var(--text-soft)' }}>Позвоните с этого номера:</p>
+                  <a href={`tel:${callPhone}`} style={{ fontSize: '22px', fontWeight: 'bold', color: 'var(--yellow)', textDecoration: 'none' }}>
+                    {callPhone}
+                  </a>
+                  {polling && <p style={{ fontSize: '12px', color: 'var(--yellow)', marginTop: '5px' }}>⏳ Ожидание звонка...</p>}
+                </div>
+              )}
+
+              {phoneVerified && (
+                <div className="auth-info" style={{ textAlign: 'center', fontWeight: 'bold' }}>
+                  ✅ Номер подтвержден
+                </div>
               )}
 
               {role === 'driver' && (
@@ -243,7 +275,7 @@ function AuthPage({ onLogin }) {
           {error && <div className="auth-error">⚠️ {error}</div>}
           {info && <div className="auth-info">✅ {info}</div>}
 
-          <button type="submit" className="auth-submit" disabled={loading}>
+          <button type="submit" className="auth-submit" disabled={loading || (mode === 'register' && !phoneVerified)}>
             {loading ? 'Загрузка...' : (mode === 'login' ? 'Войти' : 'Зарегистрироваться')}
           </button>
         </form>
