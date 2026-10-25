@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
 import AccountSettings from './AccountSettings';
-import RouteMap from './RouteMap'; // Импортируем новую карту
 
 const POLL_INTERVAL = 3000;
 
@@ -11,12 +10,12 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
   const [loading, setLoading] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [currentUser, setCurrentUser] = useState(user);
-  const [tab, setTab] = useState('work'); // 'work' | 'history'
+  const [tab, setTab] = useState('work');
   const [history, setHistory] = useState([]);
   const [stats, setStats] = useState(null);
   
-  // Состояние для показа карты маршрута
-  const [showRouteMap, setShowRouteMap] = useState(false);
+  // Состояние для показа выбора навигатора
+  const [showNavChoice, setShowNavChoice] = useState(false);
 
   const intervalRef = useRef(null);
 
@@ -42,32 +41,24 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
   };
 
   useEffect(() => {
-    // Умное ожидание загрузки OneSignal и сохранение ID
     const saveOneSignalId = async () => {
       for (let i = 0; i < 20; i++) {
         if (window.OneSignal && window.OneSignal.getUserId) {
           try {
             const userId = await window.OneSignal.getUserId();
             if (userId) {
-              console.log('OneSignal ID найден:', userId);
               await authFetch('/api/auth/onesignal', {
                 method: 'POST',
                 body: JSON.stringify({ onesignal_id: userId }),
               });
-              return; // Успешно сохранили, выходим
+              return;
             }
-          } catch (err) {
-            console.error('OneSignal error:', err);
-          }
+          } catch (err) {}
         }
-        // Ждем 500мс перед следующей попыткой
         await new Promise(resolve => setTimeout(resolve, 500));
       }
-      console.log('OneSignal ID не найден после 10 секунд ожидания');
     };
-
     saveOneSignalId();
-
     poll();
     intervalRef.current = setInterval(poll, POLL_INTERVAL);
     return () => clearInterval(intervalRef.current);
@@ -117,6 +108,46 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
       if (res.ok) await poll();
     } catch (err) {}
     setLoading(false);
+  };
+
+  // ФУНКЦИЯ ОТКРЫТИЯ НАВИГАЦИИ В ВЫБРАННОМ ПРИЛОЖЕНИИ
+  const openInApp = (app) => {
+    if (!currentOrder) return;
+    
+    const from = encodeURIComponent(currentOrder.address || currentOrder.delivery_from || '');
+    const to = encodeURIComponent(currentOrder.address_to || '');
+    
+    let url = '';
+
+    if (app === 'yandex') {
+      // Официальная схема Яндекс.Карт для маршрута
+      url = `yandexmaps://maps.yandex.ru/?rtext=${from}~${to}&rtt=auto`;
+    } else if (app === '2gis') {
+      // Официальная схема 2ГИС (требует координаты, но мы попробуем передать адреса, часто работает)
+      // Если не сработает, 2ГИС откроет просто карту, но водитель сможет ввести адрес сам
+      url = `dgis://2gis.ru/routeSearch/rsType/car/to/${to}`;
+    } else if (app === 'google') {
+      // Универсальная ссылка Google Maps (откроет приложение, если установлено)
+      url = `https://www.google.com/maps/dir/?api=1&origin=${from}&destination=${to}&travelmode=driving`;
+    }
+
+    if (url) {
+      // Пробуем открыть приложение
+      window.location.href = url;
+      
+      // Через 1.5 секунды, если ничего не произошло (приложение не установлено), открываем веб-версию
+      setTimeout(() => {
+        if (app === 'google') {
+          window.open(url, '_blank');
+        } else if (app === 'yandex') {
+          window.open(`https://yandex.ru/maps/?rtext=${from}~${to}&rtt=auto`, '_blank');
+        } else if (app === '2gis') {
+          window.open(`https://2gis.ru/directions/tab/car/to/${to}`, '_blank');
+        }
+      }, 1500);
+    }
+    
+    setShowNavChoice(false);
   };
 
   if (!me) {
@@ -180,16 +211,14 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
                   {currentOrder.client_phone && <div className="order-row"><span>Телефон:</span> <a href={`tel:${currentOrder.client_phone}`}>📞 {currentOrder.client_phone}</a></div>}
                   <div className="order-row"><span>Цена:</span> <strong>{currentOrder.price} ₽</strong></div>
 
-                  {/* Кнопка маршрута */}
-                  {currentOrder.address && currentOrder.address_to && (
-                    <button 
-                      className="btn-secondary" 
-                      style={{ marginTop: '10px', width: '100%', borderColor: 'var(--yellow)', color: 'var(--yellow)' }}
-                      onClick={() => setShowRouteMap(true)}
-                    >
-                      🗺️ Показать маршрут на карте
-                    </button>
-                  )}
+                  {/* Кнопка открытия выбора навигатора */}
+                  <button 
+                    className="btn-secondary" 
+                    style={{ marginTop: '10px', width: '100%', borderColor: 'var(--yellow)', color: 'var(--yellow)' }}
+                    onClick={() => setShowNavChoice(true)}
+                  >
+                    🗺️ Построить маршрут
+                  </button>
 
                   {orderType === 'assigned' && (
                     <div className="order-buttons">
@@ -236,13 +265,29 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
       
       {showSettings && <AccountSettings user={currentUser} token={token} authFetch={authFetch} onClose={() => setShowSettings(false)} onLogout={onLogout} onUpdate={setCurrentUser} />}
       
-      {/* Модалка с картой маршрута */}
-      {showRouteMap && currentOrder && (
-        <RouteMap 
-          fromAddress={currentOrder.address || currentOrder.delivery_from} 
-          toAddress={currentOrder.address_to} 
-          onClose={() => setShowRouteMap(false)} 
-        />
+      {/* МОДАЛЬНОЕ ОКНО ВЫБОРА НАВИГАТОРА */}
+      {showNavChoice && (
+        <div className="modal-overlay" onClick={() => setShowNavChoice(false)} style={{ zIndex: 1100 }}>
+          <div className="settings-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '350px', textAlign: 'center' }}>
+            <div className="settings-header" style={{ justifyContent: 'center' }}>
+              <h2 style={{ fontSize: '18px' }}>Выберите приложение</h2>
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '20px' }}>
+              <button className="btn-primary" onClick={() => openInApp('yandex')} style={{ padding: '15px', fontSize: '16px' }}>
+                🟡 Яндекс.Карты
+              </button>
+              <button className="btn-primary" onClick={() => openInApp('2gis')} style={{ padding: '15px', fontSize: '16px', background: '#00b341', color: 'white' }}>
+                🟢 2ГИС
+              </button>
+              <button className="btn-primary" onClick={() => openInApp('google')} style={{ padding: '15px', fontSize: '16px', background: '#4285F4', color: 'white' }}>
+                🔵 Google Maps
+              </button>
+              <button className="btn-secondary" onClick={() => setShowNavChoice(false)} style={{ marginTop: '10px' }}>
+                Отмена
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
