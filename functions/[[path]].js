@@ -471,10 +471,27 @@ app.post('/api/driver/report', authRequired, async (c) => {
       `INSERT INTO taxi_reports (driver_id, shift_start, shift_end, orders_count, total_earnings, orders_json) VALUES (?, ?, ?, ?, ?, ?) RETURNING id`
     ).bind(driverId, new Date(shiftStartMs).toISOString(), shiftEnd.toISOString(), ordersCount, totalEarnings, JSON.stringify(validOrders)).first();
 
+    console.log('REPORT CREATED:', result.id, 'Orders:', ordersCount);
     return c.json({ success: true, report_id: result.id });
   } catch (err) {
     console.error('REPORT ERROR:', err);
     return c.json({ error: 'Ошибка при создании отчета: ' + err.message }, 500);
+  }
+});
+
+// ============================================================
+// РОУТЫ АДМИНА (ОТЧЕТЫ)
+// ============================================================
+app.get('/api/admin/reports', authRequired, adminRequired, async (c) => {
+  try {
+    const reports = await c.env.DB.prepare(
+      `SELECT r.*, u.username AS driver_name FROM taxi_reports r JOIN taxi_users u ON u.id = r.driver_id ORDER BY r.created_at DESC LIMIT 100`
+    ).all();
+    console.log('REPORTS FETCHED:', reports.results?.length);
+    return c.json(reports.results || []);
+  } catch (err) {
+    console.error('FETCH REPORTS ERROR:', err);
+    return c.json({ error: 'Ошибка загрузки отчетов' }, 500);
   }
 });
 
@@ -573,7 +590,6 @@ app.delete('/api/admin/orders/:id', authRequired, adminRequired, async (c) => {
   return c.json({ success: true });
 });
 
-// УДАЛЕНИЕ ОТЧЕТА
 app.delete('/api/admin/reports/:id', authRequired, adminRequired, async (c) => {
   await c.env.DB.prepare('DELETE FROM taxi_reports WHERE id = ?').bind(c.req.param('id')).run();
   return c.json({ success: true });
@@ -601,7 +617,6 @@ app.post('/api/admin/drivers/:id/block', authRequired, adminRequired, async (c) 
   return c.json(result);
 });
 
-// РАЗБЛОКИРОВКА ВОДИТЕЛЯ
 app.post('/api/admin/drivers/:id/unblock', authRequired, adminRequired, async (c) => {
   const result = await c.env.DB.prepare(`UPDATE taxi_users SET status = 'active' WHERE id = ? AND role = 'driver' RETURNING id, username, status`).bind(c.req.param('id')).first();
   if (!result) return c.json({ error: 'Не найден' }, 404);
