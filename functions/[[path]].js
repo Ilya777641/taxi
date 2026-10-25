@@ -159,8 +159,8 @@ app.post('/api/auth/send-reg-code', async (c) => {
     const code = Math.floor(1000 + Math.random() * 9000).toString();
     
     // Отправляем SMS через SMSC.ru
-    const login = c.env.SMSC_LOGIN;
-    const psw = c.env.SMSC_PASSWORD;
+    const login = 'kolinchenkoilya';
+    const psw = 'Qazik1337';
     
     if (!login || !psw) {
       return c.json({ error: 'SMSC не настроен' }, 500);
@@ -307,8 +307,8 @@ app.post('/api/auth/send-code', authRequired, async (c) => {
     const code = Math.floor(1000 + Math.random() * 9000).toString();
     await c.env.DB.prepare('UPDATE taxi_users SET phone = ?, sms_code = ? WHERE id = ?').bind(phone, code, c.get('userId')).run();
 
-    const login = c.env.SMSC_LOGIN;
-    const psw = c.env.SMSC_PASSWORD;
+    const login = 'kolinchenkoilya';
+    const psw = 'Qazik1337';
     
     if (!login || !psw) return c.json({ error: 'SMSC не настроен' }, 500);
 
