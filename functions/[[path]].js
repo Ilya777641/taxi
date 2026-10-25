@@ -166,7 +166,8 @@ app.post('/api/auth/send-reg-code', async (c) => {
       return c.json({ error: 'SMSC не настроен' }, 500);
     }
 
-    const smsUrl = `https://smsc.ru/sys/send.php?login=${login}&psw=${psw}&phones=${phone}&mes=Код подтверждения: ${code}&charset=utf-8`;
+    const cleanPhone = phone.replace(/\D/g, '');
+const smsUrl = `https://smsc.ru/sys/send.php?login=${login}&psw=${psw}&phones=${cleanPhone}&mes=Ваш код подтверждения: ${code}&charset=utf-8`;
     const smsRes = await fetch(smsUrl);
     const smsData = await smsRes.text();
     
