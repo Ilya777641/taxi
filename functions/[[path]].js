@@ -9,6 +9,11 @@ app.use('*', cors({
 }));
 
 // ============================================================
+// НАСТРОЙКИ SMS.RU (ВСТАВЬ СВОЙ API_ID!)
+// ============================================================
+const SMSRU_API_ID = 'F8508EFF-8C1E-0C52-6498-D14EBA1B50E6';
+
+// ============================================================
 // ОТПРАВКА PUSH (OneSignal v16 - через external_id)
 // ============================================================
 async function sendPush(env, externalIds, title, message) {
@@ -143,7 +148,7 @@ app.get('/api/ping', async (c) => {
 });
 
 // ============================================================
-// АВТОРИЗАЦИЯ
+// АВТОРИЗАЦИЯ (РЕГИСТРАЦИЯ/ВХОД)
 // ============================================================
 app.post('/api/auth/register', async (c) => {
   try {
@@ -159,9 +164,9 @@ app.post('/api/auth/register', async (c) => {
     const hash = await hashPassword(password);
     const status = role === 'driver' ? 'pending' : 'active';
     
-    // Создаем пользователя с подтвержденным телефоном
+    // Создаем пользователя (пока без подтверждения телефона, оно в настройках)
     const result = await c.env.DB.prepare(
-      `INSERT INTO taxi_users (username, password_hash, role, phone, car_model, car_number, status, phone_verified) VALUES (?, ?, ?, ?, ?, ?, ?, 1) RETURNING id, username, role, status`
+      `INSERT INTO taxi_users (username, password_hash, role, phone, car_model, car_number, status, phone_verified) VALUES (?, ?, ?, ?, ?, ?, ?, 0) RETURNING id, username, role, status`
     ).bind(username.trim(), hash, role, phone, car_model || null, car_number || null, status).first();
 
     const token = status === 'active' ? await createJWT({ id: result.id, username: result.username, role: result.role }, c.env.JWT_SECRET || 'taxi-secret-key-change') : null;
@@ -172,7 +177,7 @@ app.post('/api/auth/register', async (c) => {
 app.post('/api/auth/login', async (c) => {
   try {
     const { username, password } = await c.req.json();
-    const users = await c.env.DB.prepare('SELECT id, username, password_hash, role, status, avatar_url, phone_verified FROM taxi_users WHERE username = ?').bind(username?.trim()).all();
+    const users = await c.env.DB.prepare('SELECT id, username, password_hash, role, status, avatar_url, phone_verified, phone FROM taxi_users WHERE username = ?').bind(username?.trim()).all();
     if (!users.results || users.results.length === 0) return c.json({ error: 'Неверное имя или пароль' }, 401);
 
     let matchedUser = null;
@@ -185,7 +190,7 @@ app.post('/api/auth/login', async (c) => {
     if (matchedUser.status === 'pending') return c.json({ error: 'На модерации', pending: true }, 403);
 
     const token = await createJWT({ id: matchedUser.id, username: matchedUser.username, role: matchedUser.role }, c.env.JWT_SECRET || 'taxi-secret-key-change');
-    return c.json({ token, user: { id: matchedUser.id, username: matchedUser.username, role: matchedUser.role, avatar_url: matchedUser.avatar_url, phone_verified: matchedUser.phone_verified } });
+    return c.json({ token, user: { id: matchedUser.id, username: matchedUser.username, role: matchedUser.role, avatar_url: matchedUser.avatar_url, phone_verified: matchedUser.phone_verified, phone: matchedUser.phone } });
   } catch (err) { return c.json({ error: 'Ошибка входа' }, 500); }
 });
 
@@ -236,18 +241,12 @@ app.post('/api/auth/onesignal', authRequired, async (c) => {
 // ============================================================
 // АВТОРИЗАЦИЯ ЗВОНКОМ (CALLCHECK)
 // ============================================================
-// ВАЖНО: Тебе нужен API_ID из личного кабинета SMS.RU
-// Пока пропишем его в коде для теста (потом вынеси в Cloudflare)
-const SMSRU_API_ID = 'F8508EFF-8C1E-0C52-6498-D14EBA1B50E6'; 
-
 app.post('/api/auth/callcheck/init', authRequired, async (c) => {
   try {
     const { phone } = await c.req.json();
     if (!phone || phone.length < 10) return c.json({ error: 'Введите корректный номер' }, 400);
 
     const cleanPhone = phone.replace(/\D/g, '');
-
-    // Запрос к SMS.RU для инициализации звонка
     const url = `https://sms.ru/callcheck/add?api_id=${SMSRU_API_ID}&phone=${cleanPhone}&json=1`;
     const res = await fetch(url);
     const data = await res.json();
@@ -257,12 +256,12 @@ app.post('/api/auth/callcheck/init', authRequired, async (c) => {
       return c.json({ error: data.status_text || 'Ошибка инициализации звонка' }, 500);
     }
 
-    // Сохраняем check_id в базе, чтобы потом проверить статус
-    await c.env.DB.prepare('UPDATE taxi_users SET sms_code = ? WHERE id = ?').bind(data.check_id, c.get('userId')).run();
+    // Сохраняем check_id и номер телефона в базу
+    await c.env.DB.prepare('UPDATE taxi_users SET phone = ?, sms_code = ? WHERE id = ?').bind(phone, data.check_id, c.get('userId')).run();
 
     return c.json({
       success: true,
-      call_phone: data.call_phone_pretty, // Красивый номер для отображения
+      call_phone: data.call_phone_pretty,
       check_id: data.check_id
     });
   } catch (err) {
@@ -275,10 +274,12 @@ app.post('/api/auth/callcheck/status', authRequired, async (c) => {
   try {
     const { check_id } = await c.req.json();
     
-    // Запрашиваем статус у SMS.RU
     const url = `https://sms.ru/callcheck/status?api_id=${SMSRU_API_ID}&check_id=${check_id}&json=1`;
     const res = await fetch(url);
     const data = await res.json();
+
+    // ЛОГИРУЕМ ОТВЕТ ОТ SMS.RU
+    console.log('CALLCHECK STATUS RESPONSE:', JSON.stringify(data));
 
     if (data.status !== 'OK') {
       return c.json({ error: 'Ошибка проверки статуса' }, 500);
@@ -286,16 +287,15 @@ app.post('/api/auth/callcheck/status', authRequired, async (c) => {
 
     // check_status: 1 - ожидание, 2 - звонок получен (успех), 3 - отмена, 4 - ошибка
     if (data.check_status === 2) {
-      // Успех! Подтверждаем номер
       await c.env.DB.prepare('UPDATE taxi_users SET phone_verified = 1, sms_code = NULL WHERE id = ?').bind(c.get('userId')).run();
       return c.json({ success: true, verified: true });
     } else if (data.check_status === 1) {
       return c.json({ success: true, verified: false, status: 'waiting' });
     } else {
-      return c.json({ success: false, verified: false, error: 'Звонок не получен' });
+      return c.json({ success: false, verified: false, error: 'Звонок не получен или отменен', status: data.check_status });
     }
   } catch (err) {
-    console.error(err);
+    console.error('CALLCHECK STATUS ERROR:', err);
     return c.json({ error: 'Ошибка сервера' }, 500);
   }
 });
