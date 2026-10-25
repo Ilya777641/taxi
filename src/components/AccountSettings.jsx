@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { API_URL } from '../config';
 
 function AccountSettings({ user, token, authFetch, onClose, onLogout, onUpdate }) {
@@ -15,6 +15,17 @@ function AccountSettings({ user, token, authFetch, onClose, onLogout, onUpdate }
   const [success, setSuccess] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // ==========================================
+  // СТЕЙТЫ ДЛЯ АВТОРИЗАЦИИ ЗВОНКОМ (CALLCHECK)
+  // ==========================================
+  const [phone, setPhone] = useState(user.phone || '');
+  const [callPhone, setCallPhone] = useState(null); // Номер, на который надо позвонить
+  const [checkId, setCheckId] = useState(null); // ID проверки для опроса статуса
+  const [verifying, setVerifying] = useState(false);
+  const [phoneVerified, setPhoneVerified] = useState(user.phone_verified === 1 || user.phone_verified === true);
+  const [polling, setPolling] = useState(false); // Ожидание звонка
+
+  // Смена пароля
   const handleChangePassword = async (e) => {
     e.preventDefault();
     setError(''); setSuccess('');
@@ -32,6 +43,7 @@ function AccountSettings({ user, token, authFetch, onClose, onLogout, onUpdate }
     setLoading(false);
   };
 
+  // Смена логина
   const handleChangeUsername = async (e) => {
     e.preventDefault();
     setError(''); setSuccess('');
@@ -49,6 +61,7 @@ function AccountSettings({ user, token, authFetch, onClose, onLogout, onUpdate }
     setLoading(false);
   };
 
+  // Обновление данных машины
   const handleUpdateCar = async (e) => {
     e.preventDefault();
     setError(''); setSuccess('');
@@ -73,12 +86,12 @@ function AccountSettings({ user, token, authFetch, onClose, onLogout, onUpdate }
     setLoading(true);
     try {
       const formData = new FormData();
-      formData.append('photo', carPhotoFile); // Отправляем файл как form-data
+      formData.append('photo', carPhotoFile);
 
       const res = await fetch(`${API_URL}/api/driver/car-photo`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
-        body: formData, // fetch сам выставит Content-Type multipart/form-data
+        body: formData,
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -89,8 +102,7 @@ function AccountSettings({ user, token, authFetch, onClose, onLogout, onUpdate }
     setLoading(false);
   };
 
-  // Загрузка аватарки (можно оставить Base64 для D1, если не хочешь R2, но лучше тоже в R2)
-  // Пока оставим Base64, но с проверкой размера
+  // Загрузка аватарки
   const handleUploadAvatar = async () => {
     if (!avatarFile) return;
     setError(''); setSuccess('');
@@ -100,7 +112,6 @@ function AccountSettings({ user, token, authFetch, onClose, onLogout, onUpdate }
       reader.readAsDataURL(avatarFile);
       reader.onload = async () => {
         const base64 = reader.result;
-        // Проверка размера (не больше 500KB)
         if (base64.length > 500000) {
           setError('Аватарка слишком большая (макс 500КБ)');
           setLoading(false);
@@ -121,6 +132,64 @@ function AccountSettings({ user, token, authFetch, onClose, onLogout, onUpdate }
     } catch (err) { setError(err.message); setLoading(false); }
   };
 
+  // ==========================================
+  // ЛОГИКА ЗВОНКА (CALLCHECK)
+  // ==========================================
+  
+  // 1. Инициализация (получаем номер для звонка)
+  const handleInitCall = async () => {
+    if (!phone || phone.length < 10) {
+      setError('Введите корректный номер телефона');
+      return;
+    }
+    setVerifying(true);
+    setError('');
+    setSuccess('');
+    try {
+      const res = await authFetch('/api/auth/callcheck/init', {
+        method: 'POST',
+        body: JSON.stringify({ phone }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      
+      setCallPhone(data.call_phone); // Номер, на который звонить
+      setCheckId(data.check_id);     // ID проверки
+      setPolling(true);              // Включаем опрос статуса
+      setSuccess('Позвоните на указанный номер для подтверждения');
+    } catch (err) { 
+      setError(err.message); 
+    }
+    setVerifying(false);
+  };
+
+  // 2. Автоматическая проверка статуса (раз в 3 секунды)
+  useEffect(() => {
+    if (!polling || !checkId) return;
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await authFetch('/api/auth/callcheck/status', {
+          method: 'POST',
+          body: JSON.stringify({ check_id: checkId }),
+        });
+        const data = await res.json();
+        
+        // Если звонок получен (verified: true)
+        if (data.verified) {
+          setPhoneVerified(true);
+          setSuccess('Телефон успешно подтвержден!');
+          setPolling(false);
+          onUpdate({ ...user, phone_verified: 1, phone: phone });
+        }
+      } catch (err) {
+        console.error('Ошибка при проверке статуса:', err);
+      }
+    }, 3000);
+
+    return () => clearInterval(interval);
+  }, [polling, checkId, authFetch, onUpdate, user, phone]);
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="settings-modal" onClick={(e) => e.stopPropagation()}>
@@ -132,6 +201,7 @@ function AccountSettings({ user, token, authFetch, onClose, onLogout, onUpdate }
         <div className="settings-tabs">
           <button className={tab === 'profile' ? 'active' : ''} onClick={() => setTab('profile')}>Профиль</button>
           <button className={tab === 'security' ? 'active' : ''} onClick={() => setTab('security')}>Пароль</button>
+          <button className={tab === 'phone' ? 'active' : ''} onClick={() => setTab('phone')}>Телефон</button>
           {user.role === 'driver' && (
             <button className={tab === 'car' ? 'active' : ''} onClick={() => setTab('car')}>Машина</button>
           )}
@@ -176,6 +246,52 @@ function AccountSettings({ user, token, authFetch, onClose, onLogout, onUpdate }
                 Сменить пароль
               </button>
             </form>
+          </div>
+        )}
+
+        {tab === 'phone' && (
+          <div className="settings-section">
+            <h3>Верификация телефона</h3>
+            {phoneVerified ? (
+              <div style={{ textAlign: 'center', padding: '20px', background: 'rgba(76, 175, 80, 0.1)', borderRadius: '10px', border: '1px solid var(--success)' }}>
+                <div style={{ fontSize: '30px', marginBottom: '10px' }}>✅</div>
+                <div style={{ color: 'var(--success)', fontWeight: 'bold' }}>Номер подтвержден</div>
+                <div style={{ color: 'var(--text-soft)', fontSize: '14px' }}>{user.phone}</div>
+              </div>
+            ) : (
+              <>
+                <label>Номер телефона
+                  <input 
+                    type="tel" 
+                    value={phone} 
+                    onChange={(e) => setPhone(e.target.value)} 
+                    placeholder="+7 (999) 123-45-67" 
+                    disabled={polling}
+                  />
+                </label>
+                
+                {!callPhone ? (
+                  <button className="btn-primary" onClick={handleInitCall} disabled={verifying} style={{ width: '100%', marginTop: '10px', padding: '15px' }}>
+                    {verifying ? 'Подготовка...' : '📞 Подтвердить звонком'}
+                  </button>
+                ) : (
+                  <div style={{ textAlign: 'center', marginTop: '15px', background: 'var(--black)', padding: '20px', borderRadius: '12px', border: '1px solid var(--yellow)' }}>
+                    <p style={{ fontSize: '14px', color: 'var(--text-soft)', marginBottom: '10px' }}>Позвоните на этот номер с вашего телефона:</p>
+                    <a href={`tel:${callPhone}`} style={{ fontSize: '26px', fontWeight: 'bold', color: 'var(--yellow)', textDecoration: 'none', display: 'block', margin: '10px 0', letterSpacing: '1px' }}>
+                      {callPhone}
+                    </a>
+                    <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '10px' }}>Звонок бесплатный, звонок сбрасывается автоматически.</p>
+                    
+                    {polling && (
+                      <div style={{ marginTop: '15px', color: 'var(--yellow)', fontSize: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}>
+                        <div className="loading-spinner" style={{ width: '20px', height: '20px', borderWidth: '2px' }}></div>
+                        Ожидание звонка...
+                      </div>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
 
