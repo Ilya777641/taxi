@@ -323,7 +323,6 @@ app.post('/api/orders/:id/cancel', authRequired, async (c) => {
   return c.json(result);
 });
 
-// НОВЫЙ РОУТ: Оценка водителя
 app.post('/api/orders/:id/rate', authRequired, async (c) => {
   if (c.get('role') !== 'client') return c.json({ error: 'Только клиенты' }, 403);
   const orderId = c.req.param('id');
@@ -331,14 +330,12 @@ app.post('/api/orders/:id/rate', authRequired, async (c) => {
 
   if (!rating || rating < 1 || rating > 5) return c.json({ error: 'Оценка от 1 до 5' }, 400);
 
-  // 1. Сохраняем оценку в заказе
   const result = await c.env.DB.prepare(
     `UPDATE taxi_orders SET client_rating = ? WHERE id = ? AND client_id = ? AND status = 'completed' AND client_rating IS NULL RETURNING driver_id`
   ).bind(rating, orderId, c.get('userId')).first();
 
   if (!result || !result.driver_id) return c.json({ error: 'Заказ не найден или уже оценен' }, 404);
 
-  // 2. Пересчитываем средний рейтинг водителя
   const stats = await c.env.DB.prepare(
     `SELECT AVG(client_rating) as avg_rating FROM taxi_orders WHERE driver_id = ? AND client_rating IS NOT NULL`
   ).bind(result.driver_id).first();
@@ -437,6 +434,36 @@ app.get('/api/driver/my-history', authRequired, async (c) => {
   `).bind(c.get('userId')).first();
 
   return c.json({ orders: orders.results || [], stats });
+});
+
+// НОВЫЙ РОУТ: Отправка отчета водителем
+app.post('/api/driver/report', authRequired, async (c) => {
+  if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
+  
+  const driverId = c.get('userId');
+  
+  // Получаем время начала смены (последнее переключение на "На смене")
+  const driver = await c.env.DB.prepare('SELECT shift_start_at FROM taxi_users WHERE id = ?').bind(driverId).first();
+  if (!driver || !driver.shift_start_at) return c.json({ error: 'Вы не на смене' }, 400);
+
+  const shiftStart = new Date(driver.shift_start_at);
+  const shiftEnd = new Date();
+  
+  // Получаем все заказы, выполненные за эту смену
+  const orders = await c.env.DB.prepare(
+    `SELECT id, address, address_to, price, completed_at FROM taxi_orders WHERE driver_id = ? AND status = 'completed' AND completed_at >= ? ORDER BY completed_at ASC`
+  ).bind(driverId, driver.shift_start_at).all();
+
+  const ordersList = orders.results || [];
+  const ordersCount = ordersList.length;
+  const totalEarnings = ordersList.reduce((sum, o) => sum + (o.price || 0), 0);
+
+  // Сохраняем отчет
+  const result = await c.env.DB.prepare(
+    `INSERT INTO taxi_reports (driver_id, shift_start, shift_end, orders_count, total_earnings, orders_json) VALUES (?, ?, ?, ?, ?, ?) RETURNING id`
+  ).bind(driverId, shiftStart.toISOString(), shiftEnd.toISOString(), ordersCount, totalEarnings, JSON.stringify(ordersList)).first();
+
+  return c.json({ success: true, report_id: result.id });
 });
 
 app.post('/api/orders/:id/accept', authRequired, async (c) => {

@@ -9,11 +9,15 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
   const [drivers, setDrivers] = useState([]);
   const [pendingDrivers, setPendingDrivers] = useState([]);
   const [admins, setAdmins] = useState([]);
+  const [reports, setReports] = useState([]);
   const [stats, setStats] = useState(null);
   const [prices, setPrices] = useState({ streets: [], locations: [] });
 
   const [tab, setTab] = useState('dashboard');
   const [selectedOrder, setSelectedOrder] = useState(null);
+  const [selectedReport, setSelectedReport] = useState(null);
+  const [expandedReportOrders, setExpandedReportOrders] = useState(false);
+  
   const [messages, setMessages] = useState([]);
   const [messageText, setMessageText] = useState('');
   const [showSettings, setShowSettings] = useState(false);
@@ -42,6 +46,9 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
       } else if (tab === 'prices') {
         const res = await authFetch('/api/admin/prices');
         setPrices(await res.json());
+      } else if (tab === 'reports') {
+        const res = await authFetch('/api/admin/reports');
+        setReports(await res.json());
       }
     } catch (err) {}
   };
@@ -140,9 +147,9 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
   };
 
   const getRatingColor = (rating) => {
-    if (!rating || rating < 3.5) return '#ff6b6b'; // Красный
-    if (rating < 4.5) return '#ffb74d'; // Желтый
-    return '#4caf50'; // Зеленый
+    if (!rating || rating < 3.5) return '#ff6b6b';
+    if (rating < 4.5) return '#ffb74d';
+    return '#4caf50';
   };
 
   return (
@@ -158,6 +165,7 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
       <div className="admin-tabs" style={{ flexWrap: 'wrap', gap: '5px' }}>
         <button className={tab === 'dashboard' ? 'active' : ''} onClick={() => setTab('dashboard')}>📊 Стата</button>
         <button className={tab === 'orders' ? 'active' : ''} onClick={() => setTab('orders')}>📋 Заказы</button>
+        <button className={tab === 'reports' ? 'active' : ''} onClick={() => setTab('reports')}>📄 Отчеты</button>
         <button className={tab === 'pending' ? 'active' : ''} onClick={() => setTab('pending')}>
           ⏳ Модер {pendingDrivers.length > 0 && `(${pendingDrivers.length})`}
         </button>
@@ -235,6 +243,55 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
           </div>
         )}
 
+        {tab === 'reports' && !selectedReport && (
+          <div className="admin-list">
+            {reports.length === 0 && <div className="empty-state">Отчетов пока нет</div>}
+            {reports.map((r) => (
+              <div key={r.id} onClick={() => setSelectedReport(r)} style={{ cursor: 'pointer', background: 'var(--black-card)', padding: '16px', borderRadius: '14px', border: '1px solid var(--border)', marginBottom: '10px' }}>
+                <div className="item-row">
+                  <span className="item-kind">📄 Отчет #{r.id} от {r.driver_name}</span>
+                  <span className="item-status status-completed">{r.orders_count} заказов</span>
+                </div>
+                <div className="item-meta">{new Date(r.created_at).toLocaleString('ru-RU')}</div>
+                <div className="item-meta" style={{ color: 'var(--yellow)', fontSize: '16px', fontWeight: 'bold' }}>Выручка: {r.total_earnings} ₽</div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {tab === 'reports' && selectedReport && (
+          <div className="order-detail">
+            <button className="btn-back" onClick={() => { setSelectedReport(null); setExpandedReportOrders(false); }}>← Назад</button>
+            <h3>Отчет #{selectedReport.id}</h3>
+            <div className="order-info">
+              <div className="order-row"><span>Водитель:</span> {selectedReport.driver_name}</div>
+              <div className="order-row"><span>Начало смены:</span> {new Date(selectedReport.shift_start).toLocaleString('ru-RU')}</div>
+              <div className="order-row"><span>Конец смены:</span> {new Date(selectedReport.shift_end).toLocaleString('ru-RU')}</div>
+              <div className="order-row"><span>Заказов выполнено:</span> <strong>{selectedReport.orders_count}</strong></div>
+              <div className="order-row"><span>Заработано:</span> <strong style={{ color: 'var(--yellow)' }}>{selectedReport.total_earnings} ₽</strong></div>
+            </div>
+
+            <button 
+              className="btn-secondary" 
+              onClick={() => setExpandedReportOrders(!expandedReportOrders)}
+              style={{ width: '100%', marginTop: '15px', marginBottom: '15px' }}
+            >
+              {expandedReportOrders ? 'Скрыть детали заказов' : 'Показать детали заказов'}
+            </button>
+
+            {expandedReportOrders && (
+              <div className="admin-list">
+                {JSON.parse(selectedReport.orders_json || '[]').map((o) => (
+                  <div key={o.id} className="admin-item" style={{ cursor: 'default', background: 'var(--black)', padding: '10px', borderRadius: '10px', marginBottom: '8px' }}>
+                    <div className="item-row"><span>Заказ #{o.id}</span><span>{o.price} ₽</span></div>
+                    <div className="item-meta" style={{ fontSize: '12px' }}>{new Date(o.completed_at).toLocaleTimeString('ru-RU')} • {o.address} → {o.address_to}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
         {tab === 'pending' && (
           <div className="admin-list">
             {pendingDrivers.length === 0 && <div className="empty-state">Нет заявок</div>}
@@ -261,7 +318,6 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
                     <span className="item-status">#{d.queue_position}</span>
                   </div>
                   
-                  {/* РЕЙТИНГ С ЦВЕТОМ */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '5px' }}>
                     <span style={{ color: getRatingColor(d.rating), fontSize: '18px', fontWeight: 'bold' }}>
                       ★ {d.rating ? d.rating.toFixed(1) : '5.0'}

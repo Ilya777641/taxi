@@ -22,6 +22,10 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
   const [cancelReason, setCancelReason] = useState('');
   const [cancelLoading, setCancelLoading] = useState(false);
 
+  // СТЕЙТЫ ДЛЯ ОТЧЕТА
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reportSent, setReportSent] = useState(false);
+
   const intervalRef = useRef(null);
 
   const poll = async () => {
@@ -135,6 +139,24 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
       alert('Ошибка соединения');
     }
     setCancelLoading(false);
+  };
+
+  // ОТПРАВКА ОТЧЕТА
+  const handleSendReport = async () => {
+    setReportLoading(true);
+    try {
+      const res = await authFetch('/api/driver/report', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        setReportSent(true);
+        setTimeout(() => setReportSent(false), 5000);
+      } else {
+        alert(data.error || 'Ошибка отправки отчета');
+      }
+    } catch (err) {
+      alert('Ошибка соединения');
+    }
+    setReportLoading(false);
   };
 
   const getCoords = async (address) => {
@@ -457,6 +479,26 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
                   {o.client_rating && <div className="item-meta" style={{color: 'var(--yellow)'}}>Оценка клиента: {'★'.repeat(o.client_rating)}{'☆'.repeat(5 - o.client_rating)}</div>}
                 </div>
               ))}
+            </div>
+
+            {/* КНОПКА ОТПРАВКИ ОТЧЕТА */}
+            <div style={{ marginTop: '30px', padding: '20px', background: 'var(--black-card)', border: '1px solid var(--border)', borderRadius: '15px', textAlign: 'center' }}>
+              <h3 style={{ marginBottom: '10px' }}>Завершение смены</h3>
+              <p style={{ fontSize: '14px', color: 'var(--text-soft)', marginBottom: '15px' }}>Отправьте отчет администратору о проделанной работе</p>
+              
+              {reportSent ? (
+                <div style={{ color: 'var(--success)', fontSize: '16px', fontWeight: 'bold' }}>✅ Отчет успешно отправлен!</div>
+              ) : (
+                <button 
+                  className="btn-primary" 
+                  onClick={handleSendReport} 
+                  disabled={reportLoading || !me.is_on_shift}
+                  style={{ width: '100%', padding: '15px', fontSize: '16px' }}
+                >
+                  {reportLoading ? 'Отправка...' : '📊 Отправить отчет'}
+                </button>
+              )}
+              {!me.is_on_shift && <p style={{ fontSize: '12px', color: '#ff6b6b', marginTop: '10px' }}>Вы должны быть на смене, чтобы отправить отчет</p>}
             </div>
           </div>
         )}
