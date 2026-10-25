@@ -167,7 +167,7 @@ app.post('/api/auth/send-reg-code', async (c) => {
     }
 
     const cleanPhone = phone.replace(/\D/g, '');
-const smsUrl = `https://smsc.ru/sys/send.php?login=${login}&psw=${psw}&phones=${cleanPhone}&mes=Ваш код подтверждения: ${code}&charset=utf-8`;
+const smsUrl = `https://smsc.ru/sys/send.php?login=${login}&psw=${psw}&phones=${cleanPhone}&mes=Ваш код подтверждения: ${code}&charset=utf-8&sender=`;
     const smsRes = await fetch(smsUrl);
     const smsData = await smsRes.text();
     
