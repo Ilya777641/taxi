@@ -370,17 +370,24 @@ app.post('/api/orders/:id/driver-cancel', authRequired, async (c) => {
 // ============================================================
 // ВОДИТЕЛЬ
 // ============================================================
+// ВАЖНО: Теперь мы сохраняем время начала смены!
 app.post('/api/driver/shift', authRequired, async (c) => {
   if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
   const { is_on_shift } = await c.req.json();
   const shiftVal = is_on_shift ? 1 : 0;
   let queuePos = 0;
+  let shiftStartAt = null;
+
   if (shiftVal === 1) {
     const max = await c.env.DB.prepare('SELECT COALESCE(MAX(queue_position), 0) AS max_pos FROM taxi_users WHERE role = ? AND is_on_shift = 1').bind('driver').first();
     queuePos = (max.max_pos || 0) + 1;
+    shiftStartAt = new Date().toISOString(); // Записываем время старта
   }
-  await c.env.DB.prepare('UPDATE taxi_users SET is_on_shift = ?, queue_position = ? WHERE id = ?').bind(shiftVal, queuePos, c.get('userId')).run();
-  return c.json({ success: true, is_on_shift: shiftVal, queue_position: queuePos });
+
+  await c.env.DB.prepare('UPDATE taxi_users SET is_on_shift = ?, queue_position = ?, shift_start_at = ? WHERE id = ?')
+    .bind(shiftVal, queuePos, shiftStartAt, c.get('userId')).run();
+    
+  return c.json({ success: true, is_on_shift: shiftVal, queue_position: queuePos, shift_start_at: shiftStartAt });
 });
 
 app.post('/api/driver/delivery', authRequired, async (c) => {
@@ -436,34 +443,46 @@ app.get('/api/driver/my-history', authRequired, async (c) => {
   return c.json({ orders: orders.results || [], stats });
 });
 
-// НОВЫЙ РОУТ: Отправка отчета водителем
 app.post('/api/driver/report', authRequired, async (c) => {
   if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
   
   const driverId = c.get('userId');
   
-  // Получаем время начала смены (последнее переключение на "На смене")
-  const driver = await c.env.DB.prepare('SELECT shift_start_at FROM taxi_users WHERE id = ?').bind(driverId).first();
-  if (!driver || !driver.shift_start_at) return c.json({ error: 'Вы не на смене' }, 400);
+  try {
+    const driver = await c.env.DB.prepare('SELECT shift_start_at FROM taxi_users WHERE id = ?').bind(driverId).first();
+    if (!driver) return c.json({ error: 'Водитель не найден' }, 404);
+    if (!driver.shift_start_at) return c.json({ error: 'Вы не на смене или время смены не зафиксировано' }, 400);
 
-  const shiftStart = new Date(driver.shift_start_at);
-  const shiftEnd = new Date();
-  
-  // Получаем все заказы, выполненные за эту смену
-  const orders = await c.env.DB.prepare(
-    `SELECT id, address, address_to, price, completed_at FROM taxi_orders WHERE driver_id = ? AND status = 'completed' AND completed_at >= ? ORDER BY completed_at ASC`
-  ).bind(driverId, driver.shift_start_at).all();
+    const shiftStart = new Date(driver.shift_start_at);
+    const shiftEnd = new Date();
+    
+    const orders = await c.env.DB.prepare(
+      `SELECT id, address, address_to, price, completed_at FROM taxi_orders WHERE driver_id = ? AND status = 'completed' AND completed_at >= ? ORDER BY completed_at ASC`
+    ).bind(driverId, driver.shift_start_at).all();
 
-  const ordersList = orders.results || [];
-  const ordersCount = ordersList.length;
-  const totalEarnings = ordersList.reduce((sum, o) => sum + (o.price || 0), 0);
+    const ordersList = orders.results || [];
+    const ordersCount = ordersList.length;
+    const totalEarnings = ordersList.reduce((sum, o) => sum + (o.price || 0), 0);
 
-  // Сохраняем отчет
-  const result = await c.env.DB.prepare(
-    `INSERT INTO taxi_reports (driver_id, shift_start, shift_end, orders_count, total_earnings, orders_json) VALUES (?, ?, ?, ?, ?, ?) RETURNING id`
-  ).bind(driverId, shiftStart.toISOString(), shiftEnd.toISOString(), ordersCount, totalEarnings, JSON.stringify(ordersList)).first();
+    const result = await c.env.DB.prepare(
+      `INSERT INTO taxi_reports (driver_id, shift_start, shift_end, orders_count, total_earnings, orders_json) VALUES (?, ?, ?, ?, ?, ?) RETURNING id`
+    ).bind(driverId, shiftStart.toISOString(), shiftEnd.toISOString(), ordersCount, totalEarnings, JSON.stringify(ordersList)).first();
 
-  return c.json({ success: true, report_id: result.id });
+    return c.json({ success: true, report_id: result.id });
+  } catch (err) {
+    console.error('REPORT ERROR:', err);
+    return c.json({ error: 'Ошибка при создании отчета: ' + err.message }, 500);
+  }
+});
+
+// ============================================================
+// РОУТЫ АДМИНА (ОТЧЕТЫ)
+// ============================================================
+app.get('/api/admin/reports', authRequired, adminRequired, async (c) => {
+  const reports = await c.env.DB.prepare(
+    `SELECT r.*, u.username AS driver_name FROM taxi_reports r JOIN taxi_users u ON u.id = r.driver_id ORDER BY r.created_at DESC LIMIT 100`
+  ).all();
+  return c.json(reports.results || []);
 });
 
 app.post('/api/orders/:id/accept', authRequired, async (c) => {
