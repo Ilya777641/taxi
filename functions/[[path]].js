@@ -370,7 +370,6 @@ app.post('/api/orders/:id/driver-cancel', authRequired, async (c) => {
 // ============================================================
 // ВОДИТЕЛЬ
 // ============================================================
-// ВАЖНО: Теперь мы сохраняем время начала смены!
 app.post('/api/driver/shift', authRequired, async (c) => {
   if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
   const { is_on_shift } = await c.req.json();
@@ -381,7 +380,7 @@ app.post('/api/driver/shift', authRequired, async (c) => {
   if (shiftVal === 1) {
     const max = await c.env.DB.prepare('SELECT COALESCE(MAX(queue_position), 0) AS max_pos FROM taxi_users WHERE role = ? AND is_on_shift = 1').bind('driver').first();
     queuePos = (max.max_pos || 0) + 1;
-    shiftStartAt = new Date().toISOString(); // Записываем время старта
+    shiftStartAt = new Date().toISOString();
   }
 
   await c.env.DB.prepare('UPDATE taxi_users SET is_on_shift = ?, queue_position = ?, shift_start_at = ? WHERE id = ?')
@@ -443,6 +442,7 @@ app.get('/api/driver/my-history', authRequired, async (c) => {
   return c.json({ orders: orders.results || [], stats });
 });
 
+// ОБНОВЛЕННЫЙ РОУТ ОТЧЕТА
 app.post('/api/driver/report', authRequired, async (c) => {
   if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
   
@@ -453,20 +453,27 @@ app.post('/api/driver/report', authRequired, async (c) => {
     if (!driver) return c.json({ error: 'Водитель не найден' }, 404);
     if (!driver.shift_start_at) return c.json({ error: 'Вы не на смене или время смены не зафиксировано' }, 400);
 
-    const shiftStart = new Date(driver.shift_start_at);
+    const shiftStartMs = new Date(driver.shift_start_at).getTime();
     const shiftEnd = new Date();
     
+    // Получаем ВСЕ выполненные заказы этого водителя (за последние сутки, чтобы не тянуть всю историю)
     const orders = await c.env.DB.prepare(
-      `SELECT id, address, address_to, price, completed_at FROM taxi_orders WHERE driver_id = ? AND status = 'completed' AND completed_at >= ? ORDER BY completed_at ASC`
-    ).bind(driverId, driver.shift_start_at).all();
+      `SELECT id, address, address_to, price, completed_at FROM taxi_orders WHERE driver_id = ? AND status = 'completed' AND completed_at >= datetime('now', '-1 day')`
+    ).bind(driverId).all();
 
-    const ordersList = orders.results || [];
-    const ordersCount = ordersList.length;
-    const totalEarnings = ordersList.reduce((sum, o) => sum + (o.price || 0), 0);
+    // Фильтруем их в JavaScript по времени начала смены. 
+    // Это исключает ошибки с форматами дат в SQLite.
+    const validOrders = (orders.results || []).filter(o => {
+      const orderTimeMs = new Date(o.completed_at).getTime();
+      return orderTimeMs >= shiftStartMs;
+    });
+
+    const ordersCount = validOrders.length;
+    const totalEarnings = validOrders.reduce((sum, o) => sum + (o.price || 0), 0);
 
     const result = await c.env.DB.prepare(
       `INSERT INTO taxi_reports (driver_id, shift_start, shift_end, orders_count, total_earnings, orders_json) VALUES (?, ?, ?, ?, ?, ?) RETURNING id`
-    ).bind(driverId, shiftStart.toISOString(), shiftEnd.toISOString(), ordersCount, totalEarnings, JSON.stringify(ordersList)).first();
+    ).bind(driverId, new Date(shiftStartMs).toISOString(), shiftEnd.toISOString(), ordersCount, totalEarnings, JSON.stringify(validOrders)).first();
 
     return c.json({ success: true, report_id: result.id });
   } catch (err) {
