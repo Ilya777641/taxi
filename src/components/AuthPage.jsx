@@ -13,6 +13,34 @@ function AuthPage({ onLogin }) {
   const [info, setInfo] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Стейты для SMS
+  const [smsCode, setSmsCode] = useState('');
+  const [codeSent, setCodeSent] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
+
+  const handleSendCode = async () => {
+    if (!phone || phone.length < 10) {
+      setError('Введите корректный номер телефона');
+      return;
+    }
+    setSendingCode(true);
+    setError('');
+    try {
+      const res = await fetch(`${API_URL}/api/auth/send-reg-code`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      setCodeSent(true);
+      setInfo('Код отправлен на ваш номер');
+    } catch (err) {
+      setError(err.message);
+    }
+    setSendingCode(false);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
@@ -24,6 +52,11 @@ function AuthPage({ onLogin }) {
     }
     if (!/^\d{4}$/.test(password)) {
       setError('Пароль — ровно 4 цифры');
+      return;
+    }
+
+    if (mode === 'register' && !codeSent) {
+      setError('Сначала получите код подтверждения');
       return;
     }
 
@@ -39,9 +72,10 @@ function AuthPage({ onLogin }) {
             username: username.trim(),
             password,
             role,
-            phone: phone || null,
+            phone,
             car_model: role === 'driver' ? carModel : null,
             car_number: role === 'driver' ? carNumber : null,
+            sms_code: smsCode, // Передаем код
           };
 
       const res = await fetch(url, {
@@ -83,14 +117,14 @@ function AuthPage({ onLogin }) {
           <button
             type="button"
             className={mode === 'login' ? 'active' : ''}
-            onClick={() => { setMode('login'); setError(''); setInfo(''); }}
+            onClick={() => { setMode('login'); setError(''); setInfo(''); setCodeSent(false); }}
           >
             Вход
           </button>
           <button
             type="button"
             className={mode === 'register' ? 'active' : ''}
-            onClick={() => { setMode('register'); setError(''); setInfo(''); }}
+            onClick={() => { setMode('register'); setError(''); setInfo(''); setCodeSent(false); }}
           >
             Регистрация
           </button>
@@ -103,7 +137,7 @@ function AuthPage({ onLogin }) {
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="Введите имя"  // <- Убрали "Например, Илья"
+              placeholder="Введите имя"
               maxLength={30}
               required
             />
@@ -148,9 +182,35 @@ function AuthPage({ onLogin }) {
                   type="tel"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  placeholder="Номер телефона" // <- Поменяли на понятный текст
+                  placeholder="Номер телефона"
+                  disabled={codeSent}
                 />
               </label>
+
+              {!codeSent ? (
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={handleSendCode}
+                  disabled={sendingCode || !phone}
+                  style={{ width: '100%', marginBottom: '10px' }}
+                >
+                  {sendingCode ? 'Отправка...' : '📩 Получить код'}
+                </button>
+              ) : (
+                <label className="auth-label">
+                  Код из SMS
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={4}
+                    value={smsCode}
+                    onChange={(e) => setSmsCode(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                    placeholder="0000"
+                    required
+                  />
+                </label>
+              )}
 
               {role === 'driver' && (
                 <>
@@ -160,7 +220,7 @@ function AuthPage({ onLogin }) {
                       type="text"
                       value={carModel}
                       onChange={(e) => setCarModel(e.target.value)}
-                      placeholder="Марка" // <- Убрали "Lada Granta"
+                      placeholder="Марка"
                       required
                     />
                   </label>
@@ -171,7 +231,7 @@ function AuthPage({ onLogin }) {
                       type="text"
                       value={carNumber}
                       onChange={(e) => setCarNumber(e.target.value)}
-                      placeholder="Госномер" // <- Убрали "А123БВ"
+                      placeholder="Госномер"
                       required
                     />
                   </label>
