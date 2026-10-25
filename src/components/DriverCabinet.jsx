@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import AccountSettings from './AccountSettings';
+import { YANDEX_GEO_KEY } from '../config'; // Импортируем ключ геокодера
 
 const POLL_INTERVAL = 3000;
 
@@ -14,8 +15,8 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
   const [history, setHistory] = useState([]);
   const [stats, setStats] = useState(null);
   
-  // Состояние для показа выбора навигатора
   const [showNavChoice, setShowNavChoice] = useState(false);
+  const [geocoding, setGeocoding] = useState(false);
 
   const intervalRef = useRef(null);
 
@@ -110,44 +111,86 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
     setLoading(false);
   };
 
-  // ФУНКЦИЯ ОТКРЫТИЯ НАВИГАЦИИ В ВЫБРАННОМ ПРИЛОЖЕНИИ
-  const openInApp = (app) => {
+  // ФУНКЦИЯ ГЕОКОДИРОВАНИЯ (получаем координаты по адресу)
+  const getCoords = async (address) => {
+    if (!address) return null;
+    try {
+      const res = await fetch(`https://geocode-maps.yandex.ru/1.x/?apikey=${YANDEX_GEO_KEY}&geocode=${encodeURIComponent(address)}&format=json&results=1&lang=ru_RU`);
+      const data = await res.json();
+      const member = data.response?.GeoObjectCollection?.featureMember?.[0];
+      if (!member) return null;
+      // Координаты приходят в формате "долгота широта"
+      const [lon, lat] = member.GeoObject.Point.pos.split(' ');
+      return { lat: parseFloat(lat), lon: parseFloat(lon) };
+    } catch (e) {
+      console.error('Geocode error:', e);
+      return null;
+    }
+  };
+
+  // ОТКРЫТИЕ НАВИГАЦИИ С КООРДИНАТАМИ
+  const openInApp = async (app) => {
     if (!currentOrder) return;
-    
-    const from = encodeURIComponent(currentOrder.address || currentOrder.delivery_from || '');
-    const to = encodeURIComponent(currentOrder.address_to || '');
-    
+    setGeocoding(true);
+
+    const fromText = currentOrder.address || currentOrder.delivery_from;
+    const toText = currentOrder.address_to;
+
+    // Получаем координаты для обеих точек
+    const fromCoords = await getCoords(fromText);
+    const toCoords = await getCoords(toText);
+
+    setGeocoding(false);
+    setShowNavChoice(false);
+
     let url = '';
 
     if (app === 'yandex') {
-      // Официальная схема Яндекс.Карт для маршрута
-      url = `yandexmaps://maps.yandex.ru/?rtext=${from}~${to}&rtt=auto`;
+      // Яндекс.Карты: если есть координаты, используем их, иначе текст
+      const fromStr = fromCoords ? `${fromCoords.lon},${fromCoords.lat}` : encodeURIComponent(fromText);
+      const toStr = toCoords ? `${toCoords.lon},${toCoords.lat}` : encodeURIComponent(toText);
+      url = `yandexmaps://maps.yandex.ru/?rtext=${fromStr}~${toStr}&rtt=auto`;
     } else if (app === '2gis') {
-      // Официальная схема 2ГИС (требует координаты, но мы попробуем передать адреса, часто работает)
-      // Если не сработает, 2ГИС откроет просто карту, но водитель сможет ввести адрес сам
-      url = `dgis://2gis.ru/routeSearch/rsType/car/to/${to}`;
+      // 2ГИС ТРЕБУЕТ КООРДИНАТЫ [citation:2]
+      if (fromCoords && toCoords) {
+        // Формат: dgis://2gis.ru/routeSearch/rsType/car/from/lon,lat/to/lon,lat
+        url = `dgis://2gis.ru/routeSearch/rsType/car/from/${fromCoords.lon},${fromCoords.lat}/to/${toCoords.lon},${toCoords.lat}`;
+      } else {
+        // Если координаты не нашлись, открываем просто точку Б (от текущего местоположения)
+        if (toCoords) {
+          url = `dgis://2gis.ru/routeSearch/rsType/car/to/${toCoords.lon},${toCoords.lat}`;
+        } else {
+          alert('Не удалось определить координаты для 2ГИС. Попробуйте Яндекс или Google.');
+          return;
+        }
+      }
     } else if (app === 'google') {
-      // Универсальная ссылка Google Maps (откроет приложение, если установлено)
-      url = `https://www.google.com/maps/dir/?api=1&origin=${from}&destination=${to}&travelmode=driving`;
+      // Google Maps: используем координаты, если есть, иначе текст
+      const fromStr = fromCoords ? `${fromCoords.lat},${fromCoords.lon}` : encodeURIComponent(fromText);
+      const toStr = toCoords ? `${toCoords.lat},${toCoords.lon}` : encodeURIComponent(toText);
+      url = `https://www.google.com/maps/dir/?api=1&origin=${fromStr}&destination=${toStr}&travelmode=driving`;
     }
 
     if (url) {
-      // Пробуем открыть приложение
       window.location.href = url;
       
-      // Через 1.5 секунды, если ничего не произошло (приложение не установлено), открываем веб-версию
+      // Фоллбек на веб-версию, если приложение не открылось
       setTimeout(() => {
-        if (app === 'google') {
-          window.open(url, '_blank');
-        } else if (app === 'yandex') {
-          window.open(`https://yandex.ru/maps/?rtext=${from}~${to}&rtt=auto`, '_blank');
+        if (app === 'yandex') {
+          const fromStr = fromCoords ? `${fromCoords.lon},${fromCoords.lat}` : encodeURIComponent(fromText);
+          const toStr = toCoords ? `${toCoords.lon},${toCoords.lat}` : encodeURIComponent(toText);
+          window.open(`https://yandex.ru/maps/?rtext=${fromStr}~${toStr}&rtt=auto`, '_blank');
         } else if (app === '2gis') {
-          window.open(`https://2gis.ru/directions/tab/car/to/${to}`, '_blank');
+          if (toCoords) {
+            window.open(`https://2gis.ru/routeSearch/rsType/car/to/${toCoords.lon},${toCoords.lat}`, '_blank');
+          } else {
+            window.open(`https://2gis.ru/`, '_blank');
+          }
+        } else if (app === 'google') {
+          window.open(url, '_blank');
         }
       }, 1500);
     }
-    
-    setShowNavChoice(false);
   };
 
   if (!me) {
@@ -211,7 +254,6 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
                   {currentOrder.client_phone && <div className="order-row"><span>Телефон:</span> <a href={`tel:${currentOrder.client_phone}`}>📞 {currentOrder.client_phone}</a></div>}
                   <div className="order-row"><span>Цена:</span> <strong>{currentOrder.price} ₽</strong></div>
 
-                  {/* Кнопка открытия выбора навигатора */}
                   <button 
                     className="btn-secondary" 
                     style={{ marginTop: '10px', width: '100%', borderColor: 'var(--yellow)', color: 'var(--yellow)' }}
@@ -265,24 +307,23 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
       
       {showSettings && <AccountSettings user={currentUser} token={token} authFetch={authFetch} onClose={() => setShowSettings(false)} onLogout={onLogout} onUpdate={setCurrentUser} />}
       
-      {/* МОДАЛЬНОЕ ОКНО ВЫБОРА НАВИГАТОРА */}
       {showNavChoice && (
         <div className="modal-overlay" onClick={() => setShowNavChoice(false)} style={{ zIndex: 1100 }}>
           <div className="settings-modal" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '350px', textAlign: 'center' }}>
             <div className="settings-header" style={{ justifyContent: 'center' }}>
-              <h2 style={{ fontSize: '18px' }}>Выберите приложение</h2>
+              <h2 style={{ fontSize: '18px' }}>{geocoding ? 'Определяем координаты...' : 'Выберите приложение'}</h2>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '20px' }}>
-              <button className="btn-primary" onClick={() => openInApp('yandex')} style={{ padding: '15px', fontSize: '16px' }}>
+              <button className="btn-primary" onClick={() => openInApp('yandex')} disabled={geocoding} style={{ padding: '15px', fontSize: '16px' }}>
                 🟡 Яндекс.Карты
               </button>
-              <button className="btn-primary" onClick={() => openInApp('2gis')} style={{ padding: '15px', fontSize: '16px', background: '#00b341', color: 'white' }}>
+              <button className="btn-primary" onClick={() => openInApp('2gis')} disabled={geocoding} style={{ padding: '15px', fontSize: '16px', background: '#00b341', color: 'white' }}>
                 🟢 2ГИС
               </button>
-              <button className="btn-primary" onClick={() => openInApp('google')} style={{ padding: '15px', fontSize: '16px', background: '#4285F4', color: 'white' }}>
+              <button className="btn-primary" onClick={() => openInApp('google')} disabled={geocoding} style={{ padding: '15px', fontSize: '16px', background: '#4285F4', color: 'white' }}>
                 🔵 Google Maps
               </button>
-              <button className="btn-secondary" onClick={() => setShowNavChoice(false)} style={{ marginTop: '10px' }}>
+              <button className="btn-secondary" onClick={() => setShowNavChoice(false)} disabled={geocoding} style={{ marginTop: '10px' }}>
                 Отмена
               </button>
             </div>
