@@ -164,7 +164,7 @@ app.post('/api/auth/register', async (c) => {
     const hash = await hashPassword(password);
     const status = role === 'driver' ? 'pending' : 'active';
     
-    // Создаем пользователя (пока без подтверждения телефона, оно в настройках)
+    // Создаем пользователя
     const result = await c.env.DB.prepare(
       `INSERT INTO taxi_users (username, password_hash, role, phone, car_model, car_number, status, phone_verified) VALUES (?, ?, ?, ?, ?, ?, ?, 0) RETURNING id, username, role, status`
     ).bind(username.trim(), hash, role, phone, car_model || null, car_number || null, status).first();
@@ -278,21 +278,20 @@ app.post('/api/auth/callcheck/status', authRequired, async (c) => {
     const res = await fetch(url);
     const data = await res.json();
 
-    // ЛОГИРУЕМ ОТВЕТ ОТ SMS.RU
-    console.log('CALLCHECK STATUS RESPONSE:', JSON.stringify(data));
-
     if (data.status !== 'OK') {
       return c.json({ error: 'Ошибка проверки статуса' }, 500);
     }
 
-    // check_status: 1 - ожидание, 2 - звонок получен (успех), 3 - отмена, 4 - ошибка
-    if (data.check_status === 2) {
+    // ВАЖНО: Для Callcheck успех — это код 401, а не 2!
+    // 1 — ожидание, 401 — успех, 402 — истекло время
+    if (data.check_status === 401) {
       await c.env.DB.prepare('UPDATE taxi_users SET phone_verified = 1, sms_code = NULL WHERE id = ?').bind(c.get('userId')).run();
       return c.json({ success: true, verified: true });
     } else if (data.check_status === 1) {
       return c.json({ success: true, verified: false, status: 'waiting' });
     } else {
-      return c.json({ success: false, verified: false, error: 'Звонок не получен или отменен', status: data.check_status });
+      // 402 (истекло время) или другие ошибки
+      return c.json({ success: false, verified: false, error: data.check_status_text || 'Ошибка проверки', status: data.check_status });
     }
   } catch (err) {
     console.error('CALLCHECK STATUS ERROR:', err);
