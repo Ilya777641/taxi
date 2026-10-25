@@ -225,7 +225,14 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
                 <div className="empty-state">Ожидание заказов...</div>
               ) : (
                 <div className="order-card">
-                  <div className="order-card-kind">{currentOrder.order_kind === 'taxi' ? '🚖 Такси' : '📦 Доставка'}</div>
+                  <div className="order-card-kind" style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>{currentOrder.order_kind === 'taxi' ? '🚖 Такси' : '📦 Доставка'}</span>
+                    {currentOrder.scheduled_at && (
+                      <span style={{ color: '#ffb74d', fontSize: '12px', background: 'rgba(255, 152, 0, 0.15)', padding: '2px 8px', borderRadius: '10px' }}>
+                        ⏰ Предзаказ: {new Date(currentOrder.scheduled_at).toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
+                  </div>
                   {currentOrder.order_kind === 'taxi' ? (
                     <>
                       <div className="order-row"><span>Откуда:</span> {currentOrder.address}</div>
@@ -239,7 +246,6 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
                     </>
                   )}
                   
-                  {/* НОВЫЙ БЛОК: Отображение комментария */}
                   {currentOrder.comment && (
                     <div style={{ padding: '10px', background: 'rgba(255, 215, 0, 0.1)', borderLeft: '4px solid var(--yellow)', borderRadius: '4px', margin: '8px 0' }}>
                       <div style={{ fontSize: '12px', color: 'var(--text-soft)', marginBottom: '4px' }}>Комментарий клиента:</div>
@@ -249,7 +255,6 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
 
                   <div className="order-row"><span>Клиент:</span> {currentOrder.client_name}</div>
                   
-                  {/* НОВАЯ БОЛЬШАЯ КНОПКА ПОЗВОНИТЬ */}
                   {currentOrder.client_phone && (
                     <a 
                       href={`tel:${currentOrder.client_phone}`} 
@@ -273,12 +278,11 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
 
                   <div className="order-row" style={{ marginTop: '10px' }}><span>Цена:</span> <strong>{currentOrder.price} ₽</strong></div>
 
-                  {/* ОБНОВЛЕННАЯ БОЛЬШАЯ КНОПКА МАРШРУТА */}
                   <button 
                     className="btn-primary" 
                     style={{ 
                       marginTop: '15px', 
-                      marginBottom: '15px', // <-- Отодвигаем от нижней кнопки
+                      marginBottom: '15px',
                       width: '100%', 
                       padding: '16px', 
                       fontSize: '18px',

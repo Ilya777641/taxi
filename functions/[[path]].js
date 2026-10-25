@@ -270,7 +270,7 @@ app.post('/api/driver/car', authRequired, async (c) => {
 app.post('/api/orders', authRequired, async (c) => {
   try {
     if (c.get('role') !== 'client') return c.json({ error: 'Только клиенты' }, 403);
-    const { order_kind, address, address_to, delivery_item, delivery_from, comment } = await c.req.json();
+    const { order_kind, address, address_to, delivery_item, delivery_from, comment, scheduled_at } = await c.req.json();
     if (!address_to || !address_to.trim()) return c.json({ error: 'Введите адрес назначения' }, 400);
     if (order_kind === 'taxi' && (!address || !address.trim())) return c.json({ error: 'Введите адрес откуда' }, 400);
     if (order_kind === 'delivery' && (!delivery_item || !delivery_from)) return c.json({ error: 'Введите что и откуда доставить' }, 400);
@@ -280,14 +280,24 @@ app.post('/api/orders', authRequired, async (c) => {
     let finalPrice = priceInfo.price;
 
     const result = await c.env.DB.prepare(
-      `INSERT INTO taxi_orders (client_id, order_kind, order_type, address, address_to, delivery_item, delivery_from, price, status, comment) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?) RETURNING *`
-    ).bind(c.get('userId'), order_kind || 'taxi', priceInfo.type, address || null, address_to.trim(), delivery_item || null, delivery_from || null, finalPrice, comment || null).first();
+      `INSERT INTO taxi_orders (client_id, order_kind, order_type, address, address_to, delivery_item, delivery_from, price, status, comment, scheduled_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?) RETURNING *`
+    ).bind(c.get('userId'), order_kind || 'taxi', priceInfo.type, address || null, address_to.trim(), delivery_item || null, delivery_from || null, finalPrice, comment || null, scheduled_at || null).first();
 
-    // Отправляем push всем водителям на смене
-    const drivers = await c.env.DB.prepare('SELECT id FROM taxi_users WHERE role = ? AND is_on_shift = 1').bind('driver').all();
-    const driverIds = (drivers.results || []).map(d => d.id);
-    if (driverIds.length > 0) {
-      await sendPush(c.env, driverIds, '🚖 Новый заказ!', `${address || delivery_from} → ${address_to} (${finalPrice} ₽)`);
+    // Отправляем push всем водителям на смене, ТОЛЬКО ЕСЛИ ЭТО НЕ ОТЛОЖЕННЫЙ ЗАКАЗ
+    // (Или если он отложен, но до него меньше 30 минут)
+    const isScheduled = !!scheduled_at;
+    const now = new Date();
+    const scheduledDate = isScheduled ? new Date(scheduled_at) : null;
+    const timeDiffMinutes = scheduledDate ? (scheduledDate - now) / (1000 * 60) : 0;
+    
+    // Если заказ отложенный, и до него больше 30 минут — не спамим водителям сейчас
+    if (!isScheduled || timeDiffMinutes <= 30) {
+      const drivers = await c.env.DB.prepare('SELECT id FROM taxi_users WHERE role = ? AND is_on_shift = 1').bind('driver').all();
+      const driverIds = (drivers.results || []).map(d => d.id);
+      if (driverIds.length > 0) {
+        const timeText = isScheduled ? `[⏰ Предзаказ на ${scheduledDate.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}] ` : '';
+        await sendPush(c.env, driverIds, '🚖 Новый заказ!', `${timeText}${address || delivery_from} → ${address_to} (${finalPrice} ₽)`);
+      }
     }
 
     return c.json(result);
@@ -358,8 +368,9 @@ app.get('/api/driver/my-order', authRequired, async (c) => {
   // 3. Если водитель на смене и у него нет активного заказа — показываем ему любой свободный заказ
   const me = await c.env.DB.prepare('SELECT is_on_shift FROM taxi_users WHERE id = ?').bind(c.get('userId')).first();
   if (me?.is_on_shift) {
+    // Ищем свободные заказы. Если это предзаказ, показываем его только если до него осталось <= 30 минут!
     const freeOrder = await c.env.DB.prepare(
-      `SELECT o.*, u.username AS client_name, u.phone AS client_phone FROM taxi_orders o JOIN taxi_users u ON u.id = o.client_id WHERE o.status = 'pending' AND o.assigned_to IS NULL ORDER BY o.created_at ASC LIMIT 1`
+      `SELECT o.*, u.username AS client_name, u.phone AS client_phone FROM taxi_orders o JOIN taxi_users u ON u.id = o.client_id WHERE o.status = 'pending' AND o.assigned_to IS NULL AND (o.scheduled_at IS NULL OR o.scheduled_at <= datetime('now', '+30 minutes')) ORDER BY o.created_at ASC LIMIT 1`
     ).first();
     
     if (freeOrder) {

@@ -14,7 +14,13 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
   const [coordsTo, setCoordsTo] = useState(null);
   const [deliveryItem, setDeliveryItem] = useState('');
   const [deliveryFrom, setDeliveryFrom] = useState('');
-  const [comment, setComment] = useState(''); // <--- НОВОЕ ПОЛЕ
+  const [comment, setComment] = useState('');
+  
+  // НОВЫЕ СТЕЙТЫ ДЛЯ ПРЕДЗАКАЗА
+  const [orderTimeType, setOrderTimeType] = useState('now'); // 'now' | 'scheduled'
+  const [scheduledDate, setScheduledDate] = useState('');
+  const [scheduledTime, setScheduledTime] = useState('');
+
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState([]);
@@ -84,6 +90,21 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
   const handleOrder = async (e) => {
     e.preventDefault();
     setError('');
+
+    // Валидация времени предзаказа
+    let finalScheduledAt = null;
+    if (orderTimeType === 'scheduled') {
+      if (!scheduledDate || !scheduledTime) {
+        setError('Выберите дату и время предзаказа');
+        return;
+      }
+      finalScheduledAt = new Date(`${scheduledDate}T${scheduledTime}`).toISOString();
+      if (new Date(finalScheduledAt) < new Date()) {
+        setError('Время предзаказа не может быть в прошлом');
+        return;
+      }
+    }
+
     setLoading(true);
     try {
       const body = {
@@ -92,13 +113,15 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
         address_to: addressTo,
         delivery_item: orderKind === 'delivery' ? deliveryItem : null,
         delivery_from: orderKind === 'delivery' ? deliveryFrom : null,
-        comment: comment.trim() || null, // <--- ПЕРЕДАЕМ КОММЕНТАРИЙ
+        comment: comment.trim() || null,
+        scheduled_at: finalScheduledAt,
       };
       const res = await authFetch('/api/orders', { method: 'POST', body: JSON.stringify(body) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
       setActiveOrder(data);
       setAddress(''); setAddressTo(''); setDeliveryItem(''); setDeliveryFrom(''); setComment('');
+      setOrderTimeType('now'); setScheduledDate(''); setScheduledTime('');
     } catch (err) { setError(err.message); }
     setLoading(false);
   };
@@ -160,7 +183,6 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
               </>
             )}
             
-            {/* НОВОЕ ПОЛЕ КОММЕНТАРИЯ */}
             <label>Комментарий водителю (необязательно)
               <input 
                 type="text" 
@@ -171,14 +193,39 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
               />
             </label>
 
+            {/* НОВЫЙ БЛОК: ВЫБОР ВРЕМЕНИ */}
+            <div className="kind-toggle" style={{ marginTop: '10px' }}>
+              <button type="button" className={orderTimeType === 'now' ? 'active' : ''} onClick={() => setOrderTimeType('now')}>Сейчас</button>
+              <button type="button" className={orderTimeType === 'scheduled' ? 'active' : ''} onClick={() => setOrderTimeType('scheduled')}>⏰ Ко времени</button>
+            </div>
+
+            {orderTimeType === 'scheduled' && (
+              <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
+                <label style={{ flex: 1 }}>Дата
+                  <input type="date" value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} required />
+                </label>
+                <label style={{ flex: 1 }}>Время
+                  <input type="time" value={scheduledTime} onChange={(e) => setScheduledTime(e.target.value)} required />
+                </label>
+              </div>
+            )}
+
             {error && <div className="error-box">⚠️ {error}</div>}
-            <button type="submit" className="btn-primary" disabled={loading}>{loading ? 'Отправка...' : '🚖 Вызвать такси'}</button>
+            <button type="submit" className="btn-primary" disabled={loading}>{loading ? 'Отправка...' : (orderTimeType === 'now' ? '🚖 Вызвать такси' : '⏰ Заказать ко времени')}</button>
           </form>
         )}
 
         {tab === 'order' && activeOrder && (
           <div className="active-order">
             <div className="order-status">{getStatusLabel(activeOrder.status)}</div>
+            
+            {/* Отображение времени предзаказа */}
+            {activeOrder.scheduled_at && (
+              <div style={{ textAlign: 'center', fontSize: '14px', color: 'var(--yellow)', marginBottom: '10px' }}>
+                ⏰ Предзаказ на: {new Date(activeOrder.scheduled_at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+              </div>
+            )}
+
             <div className="order-info">
               {activeOrder.order_kind === 'taxi' ? (
                 <><div className="order-row"><span>Откуда:</span> {activeOrder.address}</div><div className="order-row"><span>Куда:</span> {activeOrder.address_to}</div></>
