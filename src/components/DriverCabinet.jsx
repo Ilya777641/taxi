@@ -177,20 +177,14 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
     if (!currentOrder) return;
     setGeocoding(true);
 
-    // Логика выбора точек:
-    // Если статус 'assigned' (новый) или 'accepted' (принят, но еще не в пути) — едем к клиенту.
-    // Если статус 'on_way' (в пути) или 'waiting' (ожидает) — едем от клиента до точки Б.
-    
     const isGoingToClient = ['assigned', 'accepted'].includes(currentOrder.status) || orderType === 'assigned';
     
     let fromText, toText;
     
     if (isGoingToClient) {
-      // Едем к клиенту (точка А)
-      fromText = null; // Здесь будет геопозиция водителя, если получится
+      fromText = null;
       toText = currentOrder.address || currentOrder.delivery_from;
     } else {
-      // Едем от клиента (точка А) до точки Б
       fromText = currentOrder.address || currentOrder.delivery_from;
       toText = currentOrder.address_to;
     }
@@ -207,9 +201,9 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
     if (app === 'yandex') {
       let startPoint;
       if (isGoingToClient && userCoords) {
-        startPoint = `${userCoords.lon},${userCoords.lat}`; // От водителя
+        startPoint = `${userCoords.lon},${userCoords.lat}`;
       } else if (fromCoords) {
-        startPoint = `${fromCoords.lon},${fromCoords.lat}`; // От адреса (или от клиента)
+        startPoint = `${fromCoords.lon},${fromCoords.lat}`;
       } else {
         startPoint = encodeURIComponent(fromText || '');
       }
@@ -230,7 +224,7 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
     } else if (app === 'google') {
       let startPoint;
       if (isGoingToClient && userCoords) {
-        startPoint = `${userCoords.lat},${userCoords.lon}`; // От водителя
+        startPoint = `${userCoords.lat},${userCoords.lon}`;
       } else if (fromCoords) {
         startPoint = `${fromCoords.lat},${fromCoords.lon}`;
       } else {
@@ -288,6 +282,10 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
         <h1>🚖 Водитель</h1>
         <div className="header-actions">
           <button className="settings-btn" onClick={() => setShowSettings(true)}>⚙️</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '5px', background: 'var(--black-card)', padding: '5px 10px', borderRadius: '20px', border: '1px solid var(--border)' }}>
+            <span style={{ color: 'var(--yellow)', fontSize: '18px' }}>★</span>
+            <span style={{ fontWeight: 'bold' }}>{me.rating ? me.rating.toFixed(1) : '5.0'}</span>
+          </div>
           {currentUser.avatar_url ? <img src={currentUser.avatar_url} className="avatar-small" alt="avatar" /> : <div className="avatar-small">{currentUser.username[0]}</div>}
         </div>
       </header>
@@ -394,7 +392,6 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
                     </a>
                   )}
 
-                  {/* ДИНАМИЧЕСКАЯ КНОПКА МАРШРУТА */}
                   <button 
                     className="btn-primary" 
                     style={{ 
@@ -457,6 +454,7 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
                 <div key={o.id} className="admin-item" style={{ cursor: 'default' }}>
                   <div className="item-row"><span>Заказ #{o.id}</span><span>{o.price} ₽</span></div>
                   <div className="item-meta">{new Date(o.completed_at).toLocaleDateString()} • {o.address} → {o.address_to}</div>
+                  {o.client_rating && <div className="item-meta" style={{color: 'var(--yellow)'}}>Оценка клиента: {'★'.repeat(o.client_rating)}{'☆'.repeat(5 - o.client_rating)}</div>}
                 </div>
               ))}
             </div>

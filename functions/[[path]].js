@@ -323,7 +323,33 @@ app.post('/api/orders/:id/cancel', authRequired, async (c) => {
   return c.json(result);
 });
 
-// НОВЫЙ РОУТ: Отмена заказа водителем с причиной
+// НОВЫЙ РОУТ: Оценка водителя
+app.post('/api/orders/:id/rate', authRequired, async (c) => {
+  if (c.get('role') !== 'client') return c.json({ error: 'Только клиенты' }, 403);
+  const orderId = c.req.param('id');
+  const { rating } = await c.req.json();
+
+  if (!rating || rating < 1 || rating > 5) return c.json({ error: 'Оценка от 1 до 5' }, 400);
+
+  // 1. Сохраняем оценку в заказе
+  const result = await c.env.DB.prepare(
+    `UPDATE taxi_orders SET client_rating = ? WHERE id = ? AND client_id = ? AND status = 'completed' AND client_rating IS NULL RETURNING driver_id`
+  ).bind(rating, orderId, c.get('userId')).first();
+
+  if (!result || !result.driver_id) return c.json({ error: 'Заказ не найден или уже оценен' }, 404);
+
+  // 2. Пересчитываем средний рейтинг водителя
+  const stats = await c.env.DB.prepare(
+    `SELECT AVG(client_rating) as avg_rating FROM taxi_orders WHERE driver_id = ? AND client_rating IS NOT NULL`
+  ).bind(result.driver_id).first();
+
+  if (stats && stats.avg_rating) {
+    await c.env.DB.prepare('UPDATE taxi_users SET rating = ? WHERE id = ?').bind(stats.avg_rating, result.driver_id).run();
+  }
+
+  return c.json({ success: true });
+});
+
 app.post('/api/orders/:id/driver-cancel', authRequired, async (c) => {
   if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
   const orderId = c.req.param('id');
@@ -337,7 +363,6 @@ app.post('/api/orders/:id/driver-cancel', authRequired, async (c) => {
   
   if (!result) return c.json({ error: 'Заказ не найден или уже завершен' }, 404);
 
-  // Пуш клиенту об отмене
   try {
     await sendPush(c.env, [result.client_id], '❌ Заказ отменен водителем', `Причина: ${reason.trim()}`);
   } catch (err) {}
@@ -515,7 +540,7 @@ app.get('/api/admin/drivers/pending', authRequired, adminRequired, async (c) => 
 });
 
 app.get('/api/admin/drivers', authRequired, adminRequired, async (c) => {
-  const drivers = await c.env.DB.prepare(`SELECT id, username, phone, car_model, car_number, status, is_on_shift, queue_position, accepts_delivery, created_at FROM taxi_users WHERE role = 'driver' ORDER BY queue_position ASC`).all();
+  const drivers = await c.env.DB.prepare(`SELECT id, username, phone, car_model, car_number, status, is_on_shift, queue_position, accepts_delivery, rating, created_at FROM taxi_users WHERE role = 'driver' ORDER BY queue_position ASC`).all();
   return c.json(drivers.results || []);
 });
 

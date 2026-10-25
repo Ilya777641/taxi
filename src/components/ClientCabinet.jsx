@@ -16,8 +16,7 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
   const [deliveryFrom, setDeliveryFrom] = useState('');
   const [comment, setComment] = useState('');
   
-  // НОВЫЕ СТЕЙТЫ ДЛЯ ПРЕДЗАКАЗА
-  const [orderTimeType, setOrderTimeType] = useState('now'); // 'now' | 'scheduled'
+  const [orderTimeType, setOrderTimeType] = useState('now');
   const [scheduledDate, setScheduledDate] = useState('');
   const [scheduledTime, setScheduledTime] = useState('');
 
@@ -33,6 +32,12 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
   const [tab, setTab] = useState('order');
   const [history, setHistory] = useState([]);
 
+  // СТЕЙТЫ ДЛЯ РЕЙТИНГА
+  const [showRatingModal, setShowRatingModal] = useState(false);
+  const [ratingOrder, setRatingOrder] = useState(null);
+  const [ratingValue, setRatingValue] = useState(0);
+  const [ratingLoading, setRatingLoading] = useState(false);
+
   const intervalRef = useRef(null);
   const msgIntervalRef = useRef(null);
 
@@ -41,7 +46,16 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
       try {
         if (tab === 'order') {
           const res = await authFetch('/api/orders/my-active');
-          setActiveOrder(await res.json());
+          const data = await res.json();
+          
+          // Если заказ завершен и еще не оценен — показываем модалку
+          if (data && data.status === 'completed' && !data.client_rating) {
+            setRatingOrder(data);
+            setShowRatingModal(true);
+            setActiveOrder(null); // убираем с экрана, чтобы не висело
+          } else {
+            setActiveOrder(data);
+          }
         } else if (tab === 'history') {
           const res = await authFetch('/api/orders/my-history');
           setHistory(await res.json());
@@ -91,7 +105,6 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
     e.preventDefault();
     setError('');
 
-    // Валидация времени предзаказа
     let finalScheduledAt = null;
     if (orderTimeType === 'scheduled') {
       if (!scheduledDate || !scheduledTime) {
@@ -141,6 +154,29 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
       await authFetch(`/api/orders/${activeOrder.id}/messages`, { method: 'POST', body: JSON.stringify({ text: messageText }) });
       setMessageText('');
     } catch (err) {}
+  };
+
+  // ОТПРАВКА ОЦЕНКИ
+  const handleRateSubmit = async () => {
+    if (!ratingValue) return alert('Выберите оценку');
+    setRatingLoading(true);
+    try {
+      await authFetch(`/api/orders/${ratingOrder.id}/rate`, {
+        method: 'POST',
+        body: JSON.stringify({ rating: ratingValue }),
+      });
+      setShowRatingModal(false);
+      setRatingOrder(null);
+      setRatingValue(0);
+      // Обновляем историю, чтобы оценка применилась
+      if (tab === 'history') {
+        const res = await authFetch('/api/orders/my-history');
+        setHistory(await res.json());
+      }
+    } catch (err) {
+      alert('Ошибка отправки оценки');
+    }
+    setRatingLoading(false);
   };
 
   const getStatusLabel = (status) => {
@@ -193,7 +229,6 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
               />
             </label>
 
-            {/* НОВЫЙ БЛОК: ВЫБОР ВРЕМЕНИ */}
             <div className="kind-toggle" style={{ marginTop: '10px' }}>
               <button type="button" className={orderTimeType === 'now' ? 'active' : ''} onClick={() => setOrderTimeType('now')}>Сейчас</button>
               <button type="button" className={orderTimeType === 'scheduled' ? 'active' : ''} onClick={() => setOrderTimeType('scheduled')}>⏰ Ко времени</button>
@@ -219,7 +254,6 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
           <div className="active-order">
             <div className="order-status">{getStatusLabel(activeOrder.status)}</div>
             
-            {/* Отображение времени предзаказа */}
             {activeOrder.scheduled_at && (
               <div style={{ textAlign: 'center', fontSize: '14px', color: 'var(--yellow)', marginBottom: '10px' }}>
                 ⏰ Предзаказ на: {new Date(activeOrder.scheduled_at).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
@@ -264,6 +298,7 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
               <div key={o.id} className="admin-item" style={{ cursor: 'default' }}>
                 <div className="item-row"><span>Заказ #{o.id}</span><span>{o.price} ₽</span></div>
                 <div className="item-meta">{new Date(o.created_at).toLocaleDateString()} • {o.address || o.delivery_from} → {o.address_to}</div>
+                {o.client_rating && <div className="item-meta" style={{color: 'var(--yellow)'}}>Ваша оценка: {'★'.repeat(o.client_rating)}{'☆'.repeat(5 - o.client_rating)}</div>}
               </div>
             ))}
           </div>
@@ -272,6 +307,44 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
 
       {showMap && <MapPicker initialCoords={showMap === 'from' ? coords : coordsTo} onSelect={handleMapSelect} onClose={() => setShowMap(null)} />}
       {showSettings && <AccountSettings user={currentUser} token={token} authFetch={authFetch} onClose={() => setShowSettings(false)} onLogout={onLogout} onUpdate={setCurrentUser} />}
+
+      {/* МОДАЛЬНОЕ ОКНО РЕЙТИНГА */}
+      {showRatingModal && (
+        <div className="modal-overlay" style={{ zIndex: 1200 }}>
+          <div className="settings-modal" style={{ maxWidth: '350px', textAlign: 'center' }}>
+            <h2 style={{ color: 'var(--yellow)', marginBottom: '10px' }}>Оцените поездку</h2>
+            <p style={{ color: 'var(--text-soft)', marginBottom: '20px' }}>Как вам водитель?</p>
+            
+            <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', marginBottom: '20px' }}>
+              {[1, 2, 3, 4, 5].map((star) => (
+                <button
+                  key={star}
+                  onClick={() => setRatingValue(star)}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    fontSize: '40px',
+                    cursor: 'pointer',
+                    color: star <= ratingValue ? 'var(--yellow)' : 'var(--black-hover)',
+                    transition: 'color 0.2s'
+                  }}
+                >
+                  ★
+                </button>
+              ))}
+            </div>
+
+            <button 
+              className="btn-primary" 
+              onClick={handleRateSubmit} 
+              disabled={ratingLoading || !ratingValue}
+              style={{ width: '100%', padding: '15px' }}
+            >
+              {ratingLoading ? 'Отправка...' : 'Отправить оценку'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -139,6 +139,12 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
     return '🟢 Свободен';
   };
 
+  const getRatingColor = (rating) => {
+    if (!rating || rating < 3.5) return '#ff6b6b'; // Красный
+    if (rating < 4.5) return '#ffb74d'; // Желтый
+    return '#4caf50'; // Зеленый
+  };
+
   return (
     <div className="cabinet">
       <header className="cabinet-header">
@@ -215,7 +221,6 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
               {selectedOrder.driver_name && <div className="order-row"><span>Водитель:</span> {selectedOrder.driver_name}</div>}
               <div className="order-row"><span>Цена:</span> <strong>{selectedOrder.price} ₽</strong></div>
               
-              {/* ОТОБРАЖЕНИЕ ПРИЧИНЫ ОТМЕНЫ */}
               {selectedOrder.status === 'cancelled' && selectedOrder.cancel_reason && (
                 <div style={{ marginTop: '15px', padding: '10px', background: 'rgba(244, 67, 54, 0.1)', borderLeft: '4px solid var(--danger)', borderRadius: '4px' }}>
                   <div style={{ fontSize: '12px', color: 'var(--danger)', marginBottom: '4px' }}>Причина отмены (водитель):</div>
@@ -251,7 +256,21 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
             {drivers.map((d) => (
               <SwipeableItem key={d.id} onDelete={() => deleteDriver(d.id)} onBlock={() => blockDriver(d.id)}>
                 <div>
-                  <div className="item-row"><span className="item-kind">{d.is_on_shift ? '🟢' : '⚫'} {d.username}</span><span className="item-status">#{d.queue_position}</span></div>
+                  <div className="item-row">
+                    <span className="item-kind">{d.is_on_shift ? '🟢' : '⚫'} {d.username}</span>
+                    <span className="item-status">#{d.queue_position}</span>
+                  </div>
+                  
+                  {/* РЕЙТИНГ С ЦВЕТОМ */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '5px' }}>
+                    <span style={{ color: getRatingColor(d.rating), fontSize: '18px', fontWeight: 'bold' }}>
+                      ★ {d.rating ? d.rating.toFixed(1) : '5.0'}
+                    </span>
+                    {d.rating && d.rating < 3.5 && <span style={{ fontSize: '12px', color: '#ff6b6b' }}>(Плохой)</span>}
+                    {d.rating && d.rating >= 3.5 && d.rating < 4.5 && <span style={{ fontSize: '12px', color: '#ffb74d' }}>(Средний)</span>}
+                    {d.rating && d.rating >= 4.5 && <span style={{ fontSize: '12px', color: '#4caf50' }}>(Отличный)</span>}
+                  </div>
+
                   <div className="item-meta" style={{ color: 'var(--text)' }}>{getDriverStatus(d)}</div>
                   <div className="item-meta">{d.car_model} • {d.car_number} {d.accepts_delivery ? '📦 Да' : '📦 Нет'}</div>
                 </div>
