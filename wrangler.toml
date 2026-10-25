@@ -3,9 +3,6 @@ main = "functions/[[path]].js"
 compatibility_date = "2026-10-15"
 compatibility_flags = ["nodejs_compat"]
 
-# Ключ для Cloudflare Pages (указывает, куда Vite собирает фронтенд)
-pages_build_output_dir = "./dist"
-
 [[d1_databases]]
 binding = "DB"
 database_name = "taxi-db"
