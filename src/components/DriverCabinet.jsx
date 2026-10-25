@@ -273,9 +273,21 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
 
                   <div className="order-row" style={{ marginTop: '10px' }}><span>Цена:</span> <strong>{currentOrder.price} ₽</strong></div>
 
+                  {/* ОБНОВЛЕННАЯ БОЛЬШАЯ КНОПКА МАРШРУТА */}
                   <button 
-                    className="btn-secondary" 
-                    style={{ marginTop: '10px', width: '100%', borderColor: 'var(--yellow)', color: 'var(--yellow)' }}
+                    className="btn-primary" 
+                    style={{ 
+                      marginTop: '15px', 
+                      marginBottom: '15px', // <-- Отодвигаем от нижней кнопки
+                      width: '100%', 
+                      padding: '16px', 
+                      fontSize: '18px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '10px',
+                      boxShadow: '0 4px 15px rgba(255, 215, 0, 0.3)'
+                    }}
                     onClick={() => setShowNavChoice(true)}
                   >
                     🗺️ Построить маршрут
