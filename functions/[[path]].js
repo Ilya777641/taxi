@@ -11,7 +11,7 @@ app.use('*', cors({
 // ============================================================
 // НАСТРОЙКИ SMS.RU (ВСТАВЬ СВОЙ API_ID!)
 // ============================================================
-const SMSRU_API_ID = 'F8508EFF-8C1E-0C52-6498-D14EBA1B50E6';
+const SMSRU_API_ID = 'ВСТАВЬ_СВОЙ_API_ID_ИЗ_ЛИЧНОГО_КАБИНЕТА_SMSRU';
 
 // ============================================================
 // ОТПРАВКА PUSH (OneSignal v16 - через external_id)
@@ -148,10 +148,24 @@ app.get('/api/ping', async (c) => {
 });
 
 // ============================================================
+// ПУБЛИЧНАЯ СТАТИСТИКА (для клиента)
+// ============================================================
+app.get('/api/drivers/online', async (c) => {
+  try {
+    const result = await c.env.DB.prepare(
+      "SELECT COUNT(*) as count FROM taxi_users WHERE role = 'driver' AND is_on_shift = 1 AND status = 'active'"
+    ).first();
+    return c.json({ count: result?.count || 0 });
+  } catch (err) {
+    return c.json({ count: 0 });
+  }
+});
+
+// ============================================================
 // АВТОРИЗАЦИЯ (РЕГИСТРАЦИЯ/ВХОД)
 // ============================================================
 
-// НОВЫЙ РОУТ: Отправка звонка при РЕГИСТРАЦИИ (без авторизации)
+// Отправка звонка при РЕГИСТРАЦИИ (без авторизации)
 app.post('/api/auth/register/init-call', async (c) => {
   try {
     const { phone } = await c.req.json();
@@ -167,7 +181,6 @@ app.post('/api/auth/register/init-call', async (c) => {
       return c.json({ error: data.status_text || 'Ошибка инициализации звонка' }, 500);
     }
 
-    // Возвращаем номер для звонка и check_id (сохранять в БД пока некуда, юзера нет)
     return c.json({
       success: true,
       call_phone: data.call_phone_pretty,
@@ -179,7 +192,7 @@ app.post('/api/auth/register/init-call', async (c) => {
   }
 });
 
-// НОВЫЙ РОУТ: Проверка статуса звонка при РЕГИСТРАЦИИ
+// Проверка статуса звонка при РЕГИСТРАЦИИ
 app.post('/api/auth/register/check-status', async (c) => {
   try {
     const { check_id } = await c.req.json();
@@ -191,7 +204,6 @@ app.post('/api/auth/register/check-status', async (c) => {
       return c.json({ error: 'Ошибка проверки статуса' }, 500);
     }
 
-    // 401 — успех, 1 — ожидание, 402 — истекло время
     if (data.check_status === 401) {
       return c.json({ success: true, verified: true });
     } else if (data.check_status === 1) {
@@ -204,7 +216,7 @@ app.post('/api/auth/register/check-status', async (c) => {
   }
 });
 
-// ОБНОВЛЕННЫЙ РОУТ РЕГИСТРАЦИИ (требует подтверждения)
+// РЕГИСТРАЦИЯ
 app.post('/api/auth/register', async (c) => {
   try {
     const { username, password, role, phone, car_model, car_number, check_id } = await c.req.json();
@@ -214,7 +226,6 @@ app.post('/api/auth/register', async (c) => {
     if (!phone) return c.json({ error: 'Введите телефон' }, 400);
     if (!check_id) return c.json({ error: 'Подтвердите номер телефона' }, 400);
 
-    // Проверяем, что звонок реально был
     const checkUrl = `https://sms.ru/callcheck/status?api_id=${SMSRU_API_ID}&check_id=${check_id}&json=1`;
     const checkRes = await fetch(checkUrl);
     const checkData = await checkRes.json();
@@ -232,7 +243,6 @@ app.post('/api/auth/register', async (c) => {
     const hash = await hashPassword(password);
     const status = role === 'driver' ? 'pending' : 'active';
     
-    // Создаем пользователя с подтвержденным телефоном
     const result = await c.env.DB.prepare(
       `INSERT INTO taxi_users (username, password_hash, role, phone, car_model, car_number, status, phone_verified) VALUES (?, ?, ?, ?, ?, ?, ?, 1) RETURNING id, username, role, status`
     ).bind(username.trim(), hash, role, phone, car_model || null, car_number || null, status).first();

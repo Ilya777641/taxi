@@ -32,7 +32,9 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
   const [tab, setTab] = useState('order');
   const [history, setHistory] = useState([]);
 
-  // СТЕЙТЫ ДЛЯ РЕЙТИНГА
+  // Стейт для онлайна водителей
+  const [onlineDrivers, setOnlineDrivers] = useState(0);
+
   const [showRatingModal, setShowRatingModal] = useState(false);
   const [ratingOrder, setRatingOrder] = useState(null);
   const [ratingValue, setRatingValue] = useState(0);
@@ -40,7 +42,9 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
 
   const intervalRef = useRef(null);
   const msgIntervalRef = useRef(null);
+  const onlineIntervalRef = useRef(null);
 
+  // Опрос заказов
   useEffect(() => {
     const poll = async () => {
       try {
@@ -48,11 +52,10 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
           const res = await authFetch('/api/orders/my-active');
           const data = await res.json();
           
-          // Если заказ завершен и еще не оценен — показываем модалку
           if (data && data.status === 'completed' && !data.client_rating) {
             setRatingOrder(data);
             setShowRatingModal(true);
-            setActiveOrder(null); // убираем с экрана, чтобы не висело
+            setActiveOrder(null);
           } else {
             setActiveOrder(data);
           }
@@ -67,6 +70,23 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
     return () => clearInterval(intervalRef.current);
   }, [tab, authFetch]);
 
+  // Опрос онлайна водителей (каждые 10 секунд)
+  useEffect(() => {
+    const fetchOnline = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/drivers/online`);
+        if (res.ok) {
+          const data = await res.json();
+          setOnlineDrivers(data.count);
+        }
+      } catch (err) {}
+    };
+    fetchOnline();
+    onlineIntervalRef.current = setInterval(fetchOnline, 10000);
+    return () => clearInterval(onlineIntervalRef.current);
+  }, []);
+
+  // Опрос сообщений
   useEffect(() => {
     if (!activeOrder?.id || !showChat) return;
     const pollMessages = async () => {
@@ -156,7 +176,6 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
     } catch (err) {}
   };
 
-  // ОТПРАВКА ОЦЕНКИ
   const handleRateSubmit = async () => {
     if (!ratingValue) return alert('Выберите оценку');
     setRatingLoading(true);
@@ -168,7 +187,6 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
       setShowRatingModal(false);
       setRatingOrder(null);
       setRatingValue(0);
-      // Обновляем историю, чтобы оценка применилась
       if (tab === 'history') {
         const res = await authFetch('/api/orders/my-history');
         setHistory(await res.json());
@@ -187,7 +205,17 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
   return (
     <div className="cabinet">
       <header className="cabinet-header">
-        <h1>🚖 Такси</h1>
+        <div>
+          <h1>🚖 Такси</h1>
+          {/* БЕЙДЖ ОНЛАЙН ВОДИТЕЛЕЙ */}
+          <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginTop: '4px', background: 'rgba(76, 175, 80, 0.1)', padding: '4px 10px', borderRadius: '12px', border: '1px solid rgba(76, 175, 80, 0.3)' }}>
+            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: onlineDrivers > 0 ? '#4caf50' : '#ff6b6b', boxShadow: onlineDrivers > 0 ? '0 0 8px #4caf50' : 'none' }}></div>
+            <span style={{ fontSize: '12px', color: 'var(--text-soft)' }}>
+              {onlineDrivers > 0 ? `На смене: ${onlineDrivers}` : 'Нет водителей на смене'}
+            </span>
+          </div>
+        </div>
+        
         <div className="header-actions">
           <button className="settings-btn" onClick={() => setShowSettings(true)}>⚙️</button>
           {currentUser.avatar_url ? <img src={currentUser.avatar_url} className="avatar-small" /> : <div className="avatar-small">{currentUser.username[0]}</div>}
@@ -308,7 +336,6 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
       {showMap && <MapPicker initialCoords={showMap === 'from' ? coords : coordsTo} onSelect={handleMapSelect} onClose={() => setShowMap(null)} />}
       {showSettings && <AccountSettings user={currentUser} token={token} authFetch={authFetch} onClose={() => setShowSettings(false)} onLogout={onLogout} onUpdate={setCurrentUser} />}
 
-      {/* МОДАЛЬНОЕ ОКНО РЕЙТИНГА */}
       {showRatingModal && (
         <div className="modal-overlay" style={{ zIndex: 1200 }}>
           <div className="settings-modal" style={{ maxWidth: '350px', textAlign: 'center' }}>
