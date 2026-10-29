@@ -531,34 +531,59 @@ app.post('/api/driver/delivery', authRequired, async (c) => {
 // ВОДИТЕЛЬ ПОЛУЧАЕТ ТОЛЬКО СВОЙ ЗАКАЗ (по очереди)
 app.get('/api/driver/my-order', authRequired, async (c) => {
   if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
-  
+
   // 1. Проверяем, есть ли у водителя активный заказ
   let order = await c.env.DB.prepare(
     `SELECT o.*, u.username AS client_name, u.phone AS client_phone FROM taxi_orders o JOIN taxi_users u ON u.id = o.client_id WHERE o.driver_id = ? AND o.status IN ('accepted', 'on_way', 'waiting') ORDER BY o.accepted_at DESC LIMIT 1`
   ).bind(c.get('userId')).first();
   if (order) return c.json({ order, type: 'active' });
 
-  // 2. Проверяем, есть ли заказ, назначенный конкретно ему
+  // 2. ПРОВЕРКА ТАЙМАУТА (180 секунд = 3 минуты)
+  const expiredOrder = await c.env.DB.prepare(
+    `SELECT id FROM taxi_orders WHERE status = 'pending' AND assigned_to IS NOT NULL AND created_at <= datetime('now', '-180 seconds') LIMIT 1`
+  ).first();
+
+  if (expiredOrder) {
+    const declined = await c.env.DB.prepare('SELECT declined_by FROM taxi_orders WHERE id = ?').bind(expiredOrder.id).first();
+    const declinedArray = JSON.parse(declined?.declined_by || '[]');
+
+    const nextDriver = await c.env.DB.prepare(`
+      SELECT id FROM taxi_users 
+      WHERE role = 'driver' 
+        AND is_on_shift = 1 
+        AND status = 'active'
+        AND id NOT IN (SELECT value FROM json_each(?))
+        AND id NOT IN (SELECT driver_id FROM taxi_orders WHERE status IN ('accepted', 'on_way', 'waiting') AND driver_id IS NOT NULL)
+      ORDER BY queue_position ASC, last_order_at ASC 
+      LIMIT 1
+    `).bind(JSON.stringify(declinedArray)).first();
+
+    if (nextDriver) {
+      await c.env.DB.prepare('UPDATE taxi_orders SET assigned_to = ? WHERE id = ?').bind(nextDriver.id, expiredOrder.id).run();
+    } else {
+      await c.env.DB.prepare('UPDATE taxi_orders SET assigned_to = NULL WHERE id = ?').bind(expiredOrder.id).run();
+    }
+  }
+
+  // 3. Проверяем, есть ли заказ, назначенный конкретно этому водителю
   order = await c.env.DB.prepare(
     `SELECT o.*, u.username AS client_name, u.phone AS client_phone FROM taxi_orders o JOIN taxi_users u ON u.id = o.client_id WHERE o.assigned_to = ? AND o.status = 'pending' ORDER BY o.created_at ASC LIMIT 1`
   ).bind(c.get('userId')).first();
   if (order) return c.json({ order, type: 'assigned' });
 
-  // 3. Если водитель на смене и у него нет активного заказа — ищем свободный заказ (если он есть)
+  // 4. Если водитель на смене и у него нет активного заказа — ищем свободный заказ
   const me = await c.env.DB.prepare('SELECT is_on_shift FROM taxi_users WHERE id = ?').bind(c.get('userId')).first();
   if (me?.is_on_shift) {
-    // Ищем заказ, который "завис" (никому не назначен)
     const freeOrder = await c.env.DB.prepare(
-      `SELECT o.*, u.username AS client_name, u.phone AS client_phone FROM taxi_orders o JOIN taxi_users u ON u.id = o.client_id WHERE o.status = 'pending' AND o.assigned_to IS NULL AND (o.scheduled_at IS NULL OR o.scheduled_at <= datetime('now', '+30 minutes')) ORDER BY o.created_at ASC LIMIT 1`
+      `SELECT o.*, u.username AS client_name, u.phone AS client_phone FROM taxi_orders o JOIN taxi_users u ON u.id = o.client_id WHERE o.status = 'pending' AND o.assigned_to IS NULL ORDER BY o.created_at ASC LIMIT 1`
     ).first();
-    
+
     if (freeOrder) {
-      // Назначаем его себе
       await c.env.DB.prepare('UPDATE taxi_orders SET assigned_to = ? WHERE id = ?').bind(c.get('userId'), freeOrder.id).run();
       return c.json({ order: { ...freeOrder, assigned_to: c.get('userId') }, type: 'assigned' });
     }
   }
-  
+
   return c.json({ order: null, type: 'idle' });
 });
 

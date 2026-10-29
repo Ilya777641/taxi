@@ -32,7 +32,6 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
   const [tab, setTab] = useState('order');
   const [history, setHistory] = useState([]);
 
-  // Стейт для онлайна водителей
   const [onlineDrivers, setOnlineDrivers] = useState(0);
 
   const [showRatingModal, setShowRatingModal] = useState(false);
@@ -40,11 +39,13 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
   const [ratingValue, setRatingValue] = useState(0);
   const [ratingLoading, setRatingLoading] = useState(false);
 
+  // ТАЙМЕР ОЖИДАНИЯ (3 минуты)
+  const [timeLeft, setTimeLeft] = useState(180);
+
   const intervalRef = useRef(null);
   const msgIntervalRef = useRef(null);
   const onlineIntervalRef = useRef(null);
 
-  // Опрос заказов
   useEffect(() => {
     const poll = async () => {
       try {
@@ -70,7 +71,26 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
     return () => clearInterval(intervalRef.current);
   }, [tab, authFetch]);
 
-  // Опрос онлайна водителей (каждые 10 секунд)
+  // Таймер для ожидания водителя
+  useEffect(() => {
+    if (activeOrder && activeOrder.status === 'pending') {
+      // Если заказ только что создан, ставим 180 секунд
+      // Если у заказа есть created_at, считаем от него
+      const created = new Date(activeOrder.created_at + 'Z').getTime(); // SQLite отдает без TZ
+      const now = new Date().getTime();
+      const diff = Math.floor((now - created) / 1000);
+      const left = Math.max(0, 180 - diff);
+      setTimeLeft(left);
+
+      const timer = setInterval(() => {
+        setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
+      }, 1000);
+      return () => clearInterval(timer);
+    } else {
+      setTimeLeft(180);
+    }
+  }, [activeOrder]);
+
   useEffect(() => {
     const fetchOnline = async () => {
       try {
@@ -86,7 +106,6 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
     return () => clearInterval(onlineIntervalRef.current);
   }, []);
 
-  // Опрос сообщений
   useEffect(() => {
     if (!activeOrder?.id || !showChat) return;
     const pollMessages = async () => {
@@ -207,7 +226,6 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
       <header className="cabinet-header">
         <div>
           <h1>🚖 Такси</h1>
-          {/* БЕЙДЖ ОНЛАЙН ВОДИТЕЛЕЙ */}
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginTop: '4px', background: 'rgba(76, 175, 80, 0.1)', padding: '4px 10px', borderRadius: '12px', border: '1px solid rgba(76, 175, 80, 0.3)' }}>
             <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: onlineDrivers > 0 ? '#4caf50' : '#ff6b6b', boxShadow: onlineDrivers > 0 ? '0 0 8px #4caf50' : 'none' }}></div>
             <span style={{ fontSize: '12px', color: 'var(--text-soft)' }}>
@@ -280,7 +298,15 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
 
         {tab === 'order' && activeOrder && (
           <div className="active-order">
-            <div className="order-status">{getStatusLabel(activeOrder.status)}</div>
+            <div className="order-status">
+              {getStatusLabel(activeOrder.status)}
+              {/* ТАЙМЕР ОЖИДАНИЯ */}
+              {activeOrder.status === 'pending' && timeLeft > 0 && (
+                <div style={{ fontSize: '12px', fontWeight: 'normal', marginTop: '5px', color: 'var(--text-soft)' }}>
+                  Переназначение через: {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
+                </div>
+              )}
+            </div>
             
             {activeOrder.scheduled_at && (
               <div style={{ textAlign: 'center', fontSize: '14px', color: 'var(--yellow)', marginBottom: '10px' }}>
