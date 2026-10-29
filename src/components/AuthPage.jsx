@@ -14,12 +14,11 @@ function AuthPage({ onLogin }) {
   const [loading, setLoading] = useState(false);
 
   // Стейты для звонка
-  const [callPhone, setCallPhone] = useState(null); // Номер для звонка
-  const [checkId, setCheckId] = useState(null);     // ID проверки
-  const [phoneVerified, setPhoneVerified] = useState(false); // Подтвержден ли номер
-  const [polling, setPolling] = useState(false);    // Ожидание звонка
+  const [callPhone, setCallPhone] = useState(null);
+  const [checkId, setCheckId] = useState(null);
+  const [phoneVerified, setPhoneVerified] = useState(false);
+  const [polling, setPolling] = useState(false);
 
-  // Инициализация звонка при регистрации
   const handleInitCall = async () => {
     if (!phone || phone.length < 10) {
       setError('Введите корректный номер телефона');
@@ -45,7 +44,6 @@ function AuthPage({ onLogin }) {
     }
   };
 
-  // Автоматическая проверка статуса звонка
   useEffect(() => {
     if (!polling || !checkId) return;
 
@@ -105,7 +103,7 @@ function AuthPage({ onLogin }) {
             phone,
             car_model: role === 'driver' ? carModel : null,
             car_number: role === 'driver' ? carNumber : null,
-            check_id: checkId, // Передаем ID успешной проверки
+            check_id: checkId,
           };
 
       const res = await fetch(url, {
@@ -137,12 +135,25 @@ function AuthPage({ onLogin }) {
   };
 
   return (
-    <div className="auth-page">
-      <div className="auth-card">
-        <div className="auth-logo">🚖</div>
-        <h1 className="auth-title">Такси</h1>
-        <p className="auth-subtitle">Вызов такси онлайн</p>
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '20px',
+      // ФОН ИЗ ВТОРОЙ КАРТИНКИ
+      backgroundImage: 'url("/bg.jpg")',
+      backgroundSize: 'cover',
+      backgroundPosition: 'center',
+      backgroundRepeat: 'no-repeat',
+      position: 'relative'
+    }}>
+      {/* Затемнение фона для читаемости */}
+      <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }}></div>
 
+      <div className="auth-card" style={{ position: 'relative', zIndex: 10, background: 'rgba(20, 20, 20, 0.85)', backdropFilter: 'blur(10px)' }}>
+        {/* Убрали логотип и заголовок, сразу идут вкладки */}
+        
         <div className="auth-tabs">
           <button
             type="button"
