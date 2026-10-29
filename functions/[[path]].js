@@ -484,26 +484,41 @@ app.post('/api/driver/shift', authRequired, async (c) => {
   const { is_on_shift } = await c.req.json();
   const shiftVal = is_on_shift ? 1 : 0;
 
-  // Получаем текущее состояние водителя
   const driver = await c.env.DB.prepare('SELECT is_on_shift, queue_position FROM taxi_users WHERE id = ?').bind(c.get('userId')).first();
 
-  // Если водитель уже в этом статусе, ничего не меняем (предотвращаем баг с ростом очереди)
+  // Если статус не меняется, ничего не делаем
   if (driver.is_on_shift === shiftVal) {
     return c.json({ success: true, is_on_shift: shiftVal, queue_position: driver.queue_position });
   }
 
-  let queuePos = driver.queue_position || 0;
+  let queuePos = 0;
 
-  // Если выходит на смену — ставим в конец
   if (shiftVal === 1) {
+    // ВЫХОД НА СМЕНУ: ставим в конец
     const max = await c.env.DB.prepare('SELECT COALESCE(MAX(queue_position), 0) AS max_pos FROM taxi_users WHERE role = ? AND is_on_shift = 1').bind('driver').first();
     queuePos = (max.max_pos || 0) + 1;
+    await c.env.DB.prepare('UPDATE taxi_users SET is_on_shift = ?, queue_position = ? WHERE id = ?')
+      .bind(1, queuePos, c.get('userId')).run();
+  } else {
+    // УХОД СО СМЕНЫ: сначала сбрасываем у себя, потом пересчитываем у остальных
+    await c.env.DB.prepare('UPDATE taxi_users SET is_on_shift = 0, queue_position = 0 WHERE id = ?').bind(c.get('userId')).run();
+
+    // Получаем всех, кто остался на смене, сортируем по их текущей очереди
+    const remainingDrivers = await c.env.DB.prepare(
+      `SELECT id FROM taxi_users WHERE role = 'driver' AND is_on_shift = 1 ORDER BY queue_position ASC, id ASC`
+    ).all();
+
+    // Пересчитываем очередь с 1
+    let newPos = 1;
+    for (const d of (remainingDrivers.results || [])) {
+      await c.env.DB.prepare('UPDATE taxi_users SET queue_position = ? WHERE id = ?').bind(newPos, d.id).run();
+      newPos++;
+    }
   }
 
-  await c.env.DB.prepare('UPDATE taxi_users SET is_on_shift = ?, queue_position = ? WHERE id = ?')
-    .bind(shiftVal, shiftVal ? queuePos : 0, c.get('userId')).run();
-    
-  return c.json({ success: true, is_on_shift: shiftVal, queue_position: shiftVal ? queuePos : 0 });
+  // Возвращаем актуальный статус
+  const updated = await c.env.DB.prepare('SELECT is_on_shift, queue_position FROM taxi_users WHERE id = ?').bind(c.get('userId')).first();
+  return c.json({ success: true, is_on_shift: updated.is_on_shift, queue_position: updated.queue_position });
 });
 
 app.post('/api/driver/delivery', authRequired, async (c) => {
