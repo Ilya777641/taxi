@@ -166,7 +166,19 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
   return (
     <div className="cabinet">
       <header className="cabinet-header">
-        <h1>🚖 Админ</h1>
+        <div>
+          <h1>🚖 Админ</h1>
+          {/* БЕЙДЖ С КОЛИЧЕСТВОМ КЛИЕНТОВ */}
+          {stats && (
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginTop: '4px', background: 'rgba(33, 150, 243, 0.1)', padding: '4px 10px', borderRadius: '12px', border: '1px solid rgba(33, 150, 243, 0.3)' }}>
+              <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: '#2196f3', boxShadow: '0 0 8px #2196f3' }}></div>
+              <span style={{ fontSize: '12px', color: 'var(--text-soft)' }}>
+                Клиентов: {stats.totalClients || 0}
+              </span>
+            </div>
+          )}
+        </div>
+        
         <div className="header-actions">
           <button className="settings-btn" onClick={() => setShowSettings(true)}>⚙️</button>
           {currentUser.avatar_url ? <img src={currentUser.avatar_url} className="avatar-small" /> : <div className="avatar-small">{currentUser.username[0]}</div>}
@@ -191,6 +203,7 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
             <div className="stat-card"><div>Заказов сегодня</div><strong>{stats.ordersToday}</strong></div>
             <div className="stat-card"><div>Выполнено</div><strong>{stats.completedToday}</strong></div>
             <div className="stat-card"><div>На смене</div><strong>{stats.driversOnShift}</strong></div>
+            <div className="stat-card"><div>Клиентов всего</div><strong>{stats.totalClients || 0}</strong></div> {/* <-- Новый блок */}
             <div className="stat-card"><div>Выручка сегодня</div><strong>{stats.revenueToday} ₽</strong></div>
             <div className="stat-card"><div>Выручка всего</div><strong>{stats.revenueAll} ₽</strong></div>
           </div>
@@ -324,7 +337,6 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
         {tab === 'drivers' && (
           <div className="admin-list">
             {drivers.map((d) => {
-              // Определяем, какую кнопку показывать при свайпе
               const swipeAction = d.status === 'blocked' 
                 ? { text: 'Разблок', color: 'var(--success)', action: () => unblockDriver(d.id) }
                 : { text: 'Блок', color: '#f57c00', action: () => blockDriver(d.id) };

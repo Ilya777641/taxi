@@ -754,13 +754,17 @@ app.get('/api/admin/stats', authRequired, adminRequired, async (c) => {
   const onShift = await c.env.DB.prepare(`SELECT COUNT(*) as c FROM taxi_users WHERE role = 'driver' AND is_on_shift = 1`).first();
   const revenueToday = await c.env.DB.prepare(`SELECT SUM(price) as s FROM taxi_orders WHERE date(completed_at) = date('now') AND status = 'completed'`).first();
   const revenueAll = await c.env.DB.prepare(`SELECT SUM(price) as s FROM taxi_orders WHERE status = 'completed'`).first();
+  
+  // НОВОЕ: считаем всех клиентов
+  const totalClients = await c.env.DB.prepare(`SELECT COUNT(*) as c FROM taxi_users WHERE role = 'client'`).first();
 
   return c.json({
     ordersToday: todayOrders.c || 0,
     completedToday: todayCompleted.c || 0,
     driversOnShift: onShift.c || 0,
     revenueToday: revenueToday.s || 0,
-    revenueAll: revenueAll.s || 0
+    revenueAll: revenueAll.s || 0,
+    totalClients: totalClients.c || 0 // <-- Возвращаем клиентов
   });
 });
 
