@@ -22,6 +22,10 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
   const [cancelReason, setCancelReason] = useState('');
   const [cancelLoading, setCancelLoading] = useState(false);
 
+  // Стейт для предложения цены
+  const [proposedPrice, setProposedPrice] = useState('');
+  const [offerLoading, setOfferLoading] = useState(false);
+
   const intervalRef = useRef(null);
 
   const poll = async () => {
@@ -40,9 +44,7 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
         setHistory(histData.orders || []);
         setStats(histData.stats || null);
       }
-    } catch (err) {
-      console.error('Poll error:', err);
-    }
+    } catch (err) {}
   };
 
   useEffect(() => {
@@ -52,10 +54,7 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
           try {
             const userId = await window.OneSignal.getUserId();
             if (userId) {
-              await authFetch('/api/auth/onesignal', {
-                method: 'POST',
-                body: JSON.stringify({ onesignal_id: userId }),
-              });
+              await authFetch('/api/auth/onesignal', { method: 'POST', body: JSON.stringify({ onesignal_id: userId }) });
               return;
             }
           } catch (err) {}
@@ -69,12 +68,10 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
     return () => clearInterval(intervalRef.current);
   }, [tab, authFetch]);
 
-  // Переключение смены (без вызова poll())
   const toggleShift = async () => {
     setLoading(true);
     try {
       await authFetch('/api/driver/shift', { method: 'POST', body: JSON.stringify({ is_on_shift: !me?.is_on_shift }) });
-      // Обновляем me вручную, не дергая всю страницу
       const meRes = await authFetch('/api/auth/me');
       setMe(await meRes.json());
     } catch (err) {}
@@ -87,6 +84,26 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
       const meRes = await authFetch('/api/auth/me');
       setMe(await meRes.json());
     } catch (err) {}
+  };
+
+  // ПРЕДЛОЖИТЬ ЦЕНУ
+  const handleOfferPrice = async () => {
+    if (!proposedPrice || isNaN(proposedPrice) || Number(proposedPrice) <= 0) {
+      return alert('Введите корректную сумму');
+    }
+    setOfferLoading(true);
+    try {
+      const res = await authFetch(`/api/orders/${currentOrder.id}/offer-price`, {
+        method: 'POST',
+        body: JSON.stringify({ price: Number(proposedPrice) }),
+      });
+      if (res.ok) {
+        setProposedPrice('');
+      } else {
+        alert('Ошибка отправки цены');
+      }
+    } catch (err) { alert('Ошибка соединения'); }
+    setOfferLoading(false);
   };
 
   const acceptOrder = async () => {
@@ -120,27 +137,17 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
   };
 
   const handleDriverCancel = async () => {
-    if (!cancelReason.trim()) return alert('Введите причину отмены');
+    if (!cancelReason.trim()) return alert('Введите причину');
     setCancelLoading(true);
     try {
-      const res = await authFetch(`/api/orders/${currentOrder.id}/driver-cancel`, {
-        method: 'POST',
-        body: JSON.stringify({ reason: cancelReason }),
-      });
-      if (res.ok) {
-        setShowCancelModal(false);
-        setCancelReason('');
-        await poll();
-      } else {
-        const data = await res.json();
-        alert(data.error || 'Ошибка отмены');
-      }
-    } catch (err) {
-      alert('Ошибка соединения');
-    }
+      const res = await authFetch(`/api/orders/${currentOrder.id}/driver-cancel`, { method: 'POST', body: JSON.stringify({ reason: cancelReason }) });
+      if (res.ok) { setShowCancelModal(false); setCancelReason(''); await poll(); }
+      else { alert((await res.json()).error || 'Ошибка'); }
+    } catch (err) { alert('Ошибка соединения'); }
     setCancelLoading(false);
   };
 
+  // ... функции getCoords, getUserLocation, openInApp (они без изменений, оставляю как есть) ...
   const getCoords = async (address) => {
     if (!address) return null;
     try {
@@ -150,28 +157,15 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
       if (!member) return null;
       const [lon, lat] = member.GeoObject.Point.pos.split(' ');
       return { lat: parseFloat(lat), lon: parseFloat(lon) };
-    } catch (e) {
-      return null;
-    }
+    } catch (e) { return null; }
   };
 
   const getUserLocation = () => {
     return new Promise((resolve) => {
-      if (!navigator.geolocation) {
-        resolve(null);
-        return;
-      }
+      if (!navigator.geolocation) { resolve(null); return; }
       navigator.geolocation.getCurrentPosition(
-        (position) => {
-          resolve({
-            lat: position.coords.latitude,
-            lon: position.coords.longitude,
-          });
-        },
-        (error) => {
-          console.warn('Ошибка геолокации:', error);
-          resolve(null);
-        },
+        (position) => resolve({ lat: position.coords.latitude, lon: position.coords.longitude }),
+        (error) => resolve(null),
         { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
       );
     });
@@ -180,103 +174,47 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
   const openInApp = async (app) => {
     if (!currentOrder) return;
     setGeocoding(true);
-
     const isGoingToClient = ['assigned', 'accepted'].includes(currentOrder.status) || orderType === 'assigned';
-    
     let fromText, toText;
-    
-    if (isGoingToClient) {
-      fromText = null;
-      toText = currentOrder.address || currentOrder.delivery_from;
-    } else {
-      fromText = currentOrder.address || currentOrder.delivery_from;
-      toText = currentOrder.address_to;
-    }
-
+    if (isGoingToClient) { fromText = null; toText = currentOrder.address || currentOrder.delivery_from; }
+    else { fromText = currentOrder.address || currentOrder.delivery_from; toText = currentOrder.address_to; }
     const fromCoords = fromText ? await getCoords(fromText) : null;
     const toCoords = await getCoords(toText);
     const userCoords = await getUserLocation();
-
-    setGeocoding(false);
-    setShowNavChoice(false);
-
+    setGeocoding(false); setShowNavChoice(false);
     let url = '';
-
     if (app === 'yandex') {
-      let startPoint;
-      if (isGoingToClient && userCoords) {
-        startPoint = `${userCoords.lon},${userCoords.lat}`;
-      } else if (fromCoords) {
-        startPoint = `${fromCoords.lon},${fromCoords.lat}`;
-      } else {
-        startPoint = encodeURIComponent(fromText || '');
-      }
-      
+      let startPoint = (isGoingToClient && userCoords) ? `${userCoords.lon},${userCoords.lat}` : (fromCoords ? `${fromCoords.lon},${fromCoords.lat}` : encodeURIComponent(fromText || ''));
       const endPoint = toCoords ? `${toCoords.lon},${toCoords.lat}` : encodeURIComponent(toText);
       url = `yandexmaps://maps.yandex.ru/?rtext=${startPoint}~${endPoint}&rtt=auto`;
     } else if (app === '2gis') {
-      if (isGoingToClient && userCoords && toCoords) {
-        url = `dgis://2gis.ru/routeSearch/rsType/car/from/${userCoords.lon},${userCoords.lat}/to/${toCoords.lon},${toCoords.lat}`;
-      } else if (fromCoords && toCoords) {
-        url = `dgis://2gis.ru/routeSearch/rsType/car/from/${fromCoords.lon},${fromCoords.lat}/to/${toCoords.lon},${toCoords.lat}`;
-      } else if (toCoords) {
-        url = `dgis://2gis.ru/routeSearch/rsType/car/to/${toCoords.lon},${toCoords.lat}`;
-      } else {
-        alert('Не удалось определить координаты для 2ГИС.');
-        return;
-      }
+      if (isGoingToClient && userCoords && toCoords) url = `dgis://2gis.ru/routeSearch/rsType/car/from/${userCoords.lon},${userCoords.lat}/to/${toCoords.lon},${toCoords.lat}`;
+      else if (fromCoords && toCoords) url = `dgis://2gis.ru/routeSearch/rsType/car/from/${fromCoords.lon},${fromCoords.lat}/to/${toCoords.lon},${toCoords.lat}`;
+      else if (toCoords) url = `dgis://2gis.ru/routeSearch/rsType/car/to/${toCoords.lon},${toCoords.lat}`;
+      else { alert('Не удалось определить координаты'); return; }
     } else if (app === 'google') {
-      let startPoint;
-      if (isGoingToClient && userCoords) {
-        startPoint = `${userCoords.lat},${userCoords.lon}`;
-      } else if (fromCoords) {
-        startPoint = `${fromCoords.lat},${fromCoords.lon}`;
-      } else {
-        startPoint = encodeURIComponent(fromText || '');
-      }
-      
+      let startPoint = (isGoingToClient && userCoords) ? `${userCoords.lat},${userCoords.lon}` : (fromCoords ? `${fromCoords.lat},${fromCoords.lon}` : encodeURIComponent(fromText || ''));
       const endPoint = toCoords ? `${toCoords.lat},${toCoords.lon}` : encodeURIComponent(toText);
       url = `https://www.google.com/maps/dir/?api=1&origin=${startPoint}&destination=${endPoint}&travelmode=driving`;
     }
-
     if (url) {
       window.location.href = url;
       setTimeout(() => {
         if (app === 'yandex') {
-          let startPoint;
-          if (isGoingToClient && userCoords) {
-            startPoint = `${userCoords.lon},${userCoords.lat}`;
-          } else if (fromCoords) {
-            startPoint = `${fromCoords.lon},${fromCoords.lat}`;
-          } else {
-            startPoint = encodeURIComponent(fromText || '');
-          }
+          let startPoint = (isGoingToClient && userCoords) ? `${userCoords.lon},${userCoords.lat}` : (fromCoords ? `${fromCoords.lon},${fromCoords.lat}` : encodeURIComponent(fromText || ''));
           const endPoint = toCoords ? `${toCoords.lon},${toCoords.lat}` : encodeURIComponent(toText);
           window.open(`https://yandex.ru/maps/?rtext=${startPoint}~${endPoint}&rtt=auto`, '_blank');
         } else if (app === '2gis') {
-          if (isGoingToClient && userCoords && toCoords) {
-            window.open(`https://2gis.ru/routeSearch/rsType/car/from/${userCoords.lon},${userCoords.lat}/to/${toCoords.lon},${toCoords.lat}`, '_blank');
-          } else if (fromCoords && toCoords) {
-            window.open(`https://2gis.ru/routeSearch/rsType/car/from/${fromCoords.lon},${fromCoords.lat}/to/${toCoords.lon},${toCoords.lat}`, '_blank');
-          } else if (toCoords) {
-            window.open(`https://2gis.ru/routeSearch/rsType/car/to/${toCoords.lon},${toCoords.lat}`, '_blank');
-          } else {
-            window.open(`https://2gis.ru/`, '_blank');
-          }
-        } else if (app === 'google') {
-          window.open(url, '_blank');
-        }
+          if (isGoingToClient && userCoords && toCoords) window.open(`https://2gis.ru/routeSearch/rsType/car/from/${userCoords.lon},${userCoords.lat}/to/${toCoords.lon},${toCoords.lat}`, '_blank');
+          else if (fromCoords && toCoords) window.open(`https://2gis.ru/routeSearch/rsType/car/from/${fromCoords.lon},${fromCoords.lat}/to/${toCoords.lon},${toCoords.lat}`, '_blank');
+          else if (toCoords) window.open(`https://2gis.ru/routeSearch/rsType/car/to/${toCoords.lon},${toCoords.lat}`, '_blank');
+          else window.open(`https://2gis.ru/`, '_blank');
+        } else if (app === 'google') { window.open(url, '_blank'); }
       }, 1500);
     }
   };
 
-  if (!me) {
-    return (
-      <div className="loading-page">
-        <div className="loading-spinner" />
-      </div>
-    );
-  }
+  if (!me) return <div className="loading-page"><div className="loading-spinner" /></div>;
 
   const statusLabels = { assigned: '🔔 Новый заказ', active: '🚗 Активный заказ', idle: '⏳ Ожидание' };
 
@@ -372,43 +310,56 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
                       <div style={{ fontSize: '12px', color: 'var(--text-soft)', marginBottom: '2px' }}>Клиент</div>
                       <div style={{ fontSize: '16px', fontWeight: 'bold' }}>{currentOrder.client_name}</div>
                     </div>
-                    <div style={{ fontSize: '20px', fontWeight: 'bold', color: 'var(--yellow)' }}>{currentOrder.price} ₽</div>
+                    <div style={{ fontSize: '20px', fontWeight: 'bold', color: 'var(--yellow)' }}>
+                      {currentOrder.price ? `${currentOrder.price} ₽` : 'Таксометр'}
+                    </div>
                   </div>
                   
                   {currentOrder.client_phone && (
                     <a 
                       href={`tel:${currentOrder.client_phone}`} 
                       className="btn-success" 
-                      style={{ 
-                        display: 'flex', 
-                        alignItems: 'center', 
-                        justifyContent: 'center', 
-                        gap: '10px', 
-                        padding: '16px', 
-                        fontSize: '18px', 
-                        marginBottom: '15px',
-                        textDecoration: 'none',
-                        fontWeight: 'bold',
-                        boxShadow: '0 4px 15px rgba(76, 175, 80, 0.3)'
-                      }}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', padding: '16px', fontSize: '18px', marginBottom: '15px', textDecoration: 'none', fontWeight: 'bold', boxShadow: '0 4px 15px rgba(76, 175, 80, 0.3)' }}
                     >
                       📞 Позвонить клиенту
                     </a>
                   )}
 
+                  {/* БЛОК ПРЕДЛОЖЕНИЯ ЦЕНЫ (если цена не найдена) */}
+                  {!currentOrder.price && orderType === 'assigned' && currentOrder.price_status !== 'agreed' && (
+                    <div style={{ marginBottom: '15px', padding: '15px', background: 'var(--black)', borderRadius: '10px', border: '1px dashed var(--yellow)' }}>
+                      <div style={{ fontSize: '13px', color: 'var(--text-soft)', marginBottom: '8px' }}>💰 Таксометр: введите цену поездки</div>
+                      <div style={{ display: 'flex', gap: '10px' }}>
+                        <input 
+                          type="number" 
+                          value={proposedPrice} 
+                          onChange={(e) => setProposedPrice(e.target.value)} 
+                          placeholder="Сумма в ₽" 
+                          style={{ flex: 1, padding: '12px', borderRadius: '10px', border: '1px solid var(--border)', background: 'var(--black-card)', color: 'white', fontSize: '16px' }}
+                        />
+                        <button 
+                          onClick={handleOfferPrice} 
+                          disabled={offerLoading} 
+                          className="btn-primary" 
+                          style={{ width: '50px', height: '50px', padding: 0, fontSize: '20px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                        >
+                          {offerLoading ? '...' : '✔️'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {currentOrder.price_status === 'offered' && currentOrder.proposed_price && (
+                    <div style={{ marginBottom: '15px', padding: '15px', background: 'rgba(255, 215, 0, 0.1)', borderRadius: '10px', textAlign: 'center', border: '1px solid var(--yellow)' }}>
+                      <div style={{ fontSize: '14px', color: 'var(--text-soft)' }}>Вы предложили:</div>
+                      <div style={{ fontSize: '24px', fontWeight: 'bold', color: 'var(--yellow)' }}>{currentOrder.proposed_price} ₽</div>
+                      <div style={{ fontSize: '12px', color: 'var(--text-soft)', marginTop: '5px' }}>Ожидание ответа клиента...</div>
+                    </div>
+                  )}
+
                   <button 
                     className="btn-primary" 
-                    style={{ 
-                      marginBottom: '15px',
-                      width: '100%', 
-                      padding: '16px', 
-                      fontSize: '18px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '10px',
-                      boxShadow: '0 4px 15px rgba(255, 215, 0, 0.3)'
-                    }}
+                    style={{ marginBottom: '15px', width: '100%', padding: '16px', fontSize: '18px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', boxShadow: '0 4px 15px rgba(255, 215, 0, 0.3)' }}
                     onClick={() => setShowNavChoice(true)}
                   >
                     {['accepted', 'assigned'].includes(currentOrder.status) || orderType === 'assigned' 
@@ -458,9 +409,18 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
                 <div key={o.id} className="admin-item" style={{ cursor: 'default' }}>
                   <div className="item-row"><span>Заказ #{o.id}</span><span>{o.price} ₽</span></div>
                   <div className="item-meta">{new Date(o.completed_at).toLocaleDateString()} • {o.address} → {o.address_to}</div>
-                  {o.client_rating && <div className="item-meta" style={{color: 'var(--yellow)'}}>Оценка клиента: {'★'.repeat(o.client_rating)}{'☆'.repeat(5 - o.client_rating)}</div>}
+                  {o.client_rating && <div className="item-meta" style={{color: 'var(--yellow)'}}>Оценка: {'★'.repeat(o.client_rating)}{'☆'.repeat(5 - o.client_rating)}</div>}
                 </div>
               ))}
+            </div>
+
+            <div style={{ marginTop: '30px', padding: '20px', background: 'var(--black-card)', border: '1px solid var(--border)', borderRadius: '15px', textAlign: 'center' }}>
+              <h3 style={{ marginBottom: '10px' }}>Завершение смены</h3>
+              <p style={{ fontSize: '14px', color: 'var(--text-soft)', marginBottom: '15px' }}>Отправьте отчет администратору о проделанной работе</p>
+              <button className="btn-primary" onClick={handleSendReport} disabled={reportLoading || !me.is_on_shift} style={{ width: '100%', padding: '15px', fontSize: '16px' }}>
+                {reportLoading ? 'Отправка...' : '📊 Отправить отчет'}
+              </button>
+              {!me.is_on_shift && <p style={{ fontSize: '12px', color: '#ff6b6b', marginTop: '10px' }}>Вы должны быть на смене</p>}
             </div>
           </div>
         )}
@@ -475,18 +435,10 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
               <h2 style={{ fontSize: '18px' }}>{geocoding ? 'Определяем координаты...' : 'Выберите приложение'}</h2>
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '20px' }}>
-              <button className="btn-primary" onClick={() => openInApp('yandex')} disabled={geocoding} style={{ padding: '15px', fontSize: '16px' }}>
-                🟡 Яндекс.Карты
-              </button>
-              <button className="btn-primary" onClick={() => openInApp('2gis')} disabled={geocoding} style={{ padding: '15px', fontSize: '16px', background: '#00b341', color: 'white' }}>
-                🟢 2ГИС
-              </button>
-              <button className="btn-primary" onClick={() => openInApp('google')} disabled={geocoding} style={{ padding: '15px', fontSize: '16px', background: '#4285F4', color: 'white' }}>
-                🔵 Google Maps
-              </button>
-              <button className="btn-secondary" onClick={() => setShowNavChoice(false)} disabled={geocoding} style={{ marginTop: '10px' }}>
-                Отмена
-              </button>
+              <button className="btn-primary" onClick={() => openInApp('yandex')} disabled={geocoding} style={{ padding: '15px', fontSize: '16px' }}>🟡 Яндекс.Карты</button>
+              <button className="btn-primary" onClick={() => openInApp('2gis')} disabled={geocoding} style={{ padding: '15px', fontSize: '16px', background: '#00b341', color: 'white' }}>🟢 2ГИС</button>
+              <button className="btn-primary" onClick={() => openInApp('google')} disabled={geocoding} style={{ padding: '15px', fontSize: '16px', background: '#4285F4', color: 'white' }}>🔵 Google Maps</button>
+              <button className="btn-secondary" onClick={() => setShowNavChoice(false)} disabled={geocoding} style={{ marginTop: '10px' }}>Отмена</button>
             </div>
           </div>
         </div>
@@ -499,22 +451,11 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
               <h2 style={{ fontSize: '18px', color: 'var(--danger)' }}>❌ Отмена заказа</h2>
               <button className="modal-close" onClick={() => setShowCancelModal(false)}>✕</button>
             </div>
-            <p style={{ fontSize: '14px', color: 'var(--text-soft)', marginBottom: '15px' }}>
-              Пожалуйста, укажите причину отмены. Клиент получит уведомление, а администратор увидит её в системе.
-            </p>
-            <textarea
-              value={cancelReason}
-              onChange={(e) => setCancelReason(e.target.value)}
-              placeholder="Например: Клиент не выходит на связь, или неверный адрес"
-              style={{ width: '100%', height: '80px', padding: '10px', borderRadius: '10px', background: 'var(--black)', color: 'var(--text)', border: '1px solid var(--border)', marginBottom: '15px', resize: 'none', fontFamily: 'inherit' }}
-            />
+            <p style={{ fontSize: '14px', color: 'var(--text-soft)', marginBottom: '15px' }}>Укажите причину отмены. Клиент получит уведомление.</p>
+            <textarea value={cancelReason} onChange={(e) => setCancelReason(e.target.value)} placeholder="Например: Клиент не выходит" style={{ width: '100%', height: '80px', padding: '10px', borderRadius: '10px', background: 'var(--black)', color: 'var(--text)', border: '1px solid var(--border)', marginBottom: '15px', resize: 'none', fontFamily: 'inherit' }} />
             <div style={{ display: 'flex', gap: '10px' }}>
-              <button className="btn-danger" onClick={handleDriverCancel} disabled={cancelLoading} style={{ flex: 1, padding: '14px' }}>
-                {cancelLoading ? 'Отмена...' : 'Подтвердить отмену'}
-              </button>
-              <button className="btn-secondary" onClick={() => setShowCancelModal(false)} disabled={cancelLoading} style={{ flex: 1, padding: '14px' }}>
-                Назад
-              </button>
+              <button className="btn-danger" onClick={handleDriverCancel} disabled={cancelLoading} style={{ flex: 1, padding: '14px' }}>{cancelLoading ? 'Отмена...' : 'Подтвердить'}</button>
+              <button className="btn-secondary" onClick={() => setShowCancelModal(false)} disabled={cancelLoading} style={{ flex: 1, padding: '14px' }}>Назад</button>
             </div>
           </div>
         </div>

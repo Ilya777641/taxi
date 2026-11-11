@@ -39,7 +39,6 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
   const [ratingValue, setRatingValue] = useState(0);
   const [ratingLoading, setRatingLoading] = useState(false);
 
-  // ТАЙМЕР ОЖИДАНИЯ (3 минуты)
   const [timeLeft, setTimeLeft] = useState(180);
 
   const intervalRef = useRef(null);
@@ -71,20 +70,14 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
     return () => clearInterval(intervalRef.current);
   }, [tab, authFetch]);
 
-  // Таймер для ожидания водителя
   useEffect(() => {
-    if (activeOrder && activeOrder.status === 'pending') {
-      // Если заказ только что создан, ставим 180 секунд
-      // Если у заказа есть created_at, считаем от него
-      const created = new Date(activeOrder.created_at + 'Z').getTime(); // SQLite отдает без TZ
+    if (activeOrder && activeOrder.status === 'pending' && activeOrder.price_status !== 'offered') {
+      const created = new Date(activeOrder.created_at + 'Z').getTime();
       const now = new Date().getTime();
       const diff = Math.floor((now - created) / 1000);
       const left = Math.max(0, 180 - diff);
       setTimeLeft(left);
-
-      const timer = setInterval(() => {
-        setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0));
-      }, 1000);
+      const timer = setInterval(() => setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0)), 1000);
       return () => clearInterval(timer);
     } else {
       setTimeLeft(180);
@@ -95,10 +88,7 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
     const fetchOnline = async () => {
       try {
         const res = await fetch(`${API_URL}/api/drivers/online`);
-        if (res.ok) {
-          const data = await res.json();
-          setOnlineDrivers(data.count);
-        }
+        if (res.ok) setOnlineDrivers((await res.json()).count);
       } catch (err) {}
     };
     fetchOnline();
@@ -143,20 +133,12 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
   const handleOrder = async (e) => {
     e.preventDefault();
     setError('');
-
     let finalScheduledAt = null;
     if (orderTimeType === 'scheduled') {
-      if (!scheduledDate || !scheduledTime) {
-        setError('Выберите дату и время предзаказа');
-        return;
-      }
+      if (!scheduledDate || !scheduledTime) { setError('Выберите дату и время'); return; }
       finalScheduledAt = new Date(`${scheduledDate}T${scheduledTime}`).toISOString();
-      if (new Date(finalScheduledAt) < new Date()) {
-        setError('Время предзаказа не может быть в прошлом');
-        return;
-      }
+      if (new Date(finalScheduledAt) < new Date()) { setError('Время в прошлом'); return; }
     }
-
     setLoading(true);
     try {
       const body = {
@@ -176,6 +158,19 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
       setOrderTimeType('now'); setScheduledDate(''); setScheduledTime('');
     } catch (err) { setError(err.message); }
     setLoading(false);
+  };
+
+  // ОТВЕТ НА ЦЕНУ
+  const handleConfirmPrice = async (agreed) => {
+    try {
+      await authFetch(`/api/orders/${activeOrder.id}/confirm-price`, {
+        method: 'POST',
+        body: JSON.stringify({ agreed }),
+      });
+      if (!agreed) {
+        setActiveOrder(null); // Если отказ, просто убираем заказ с экрана
+      }
+    } catch (err) { alert('Ошибка'); }
   };
 
   const handleCancel = async () => {
@@ -199,20 +194,10 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
     if (!ratingValue) return alert('Выберите оценку');
     setRatingLoading(true);
     try {
-      await authFetch(`/api/orders/${ratingOrder.id}/rate`, {
-        method: 'POST',
-        body: JSON.stringify({ rating: ratingValue }),
-      });
-      setShowRatingModal(false);
-      setRatingOrder(null);
-      setRatingValue(0);
-      if (tab === 'history') {
-        const res = await authFetch('/api/orders/my-history');
-        setHistory(await res.json());
-      }
-    } catch (err) {
-      alert('Ошибка отправки оценки');
-    }
+      await authFetch(`/api/orders/${ratingOrder.id}/rate`, { method: 'POST', body: JSON.stringify({ rating: ratingValue }) });
+      setShowRatingModal(false); setRatingOrder(null); setRatingValue(0);
+      if (tab === 'history') setHistory(await (await authFetch('/api/orders/my-history')).json());
+    } catch (err) { alert('Ошибка'); }
     setRatingLoading(false);
   };
 
@@ -228,12 +213,9 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
           <h1>🚖 Такси</h1>
           <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', marginTop: '4px', background: 'rgba(76, 175, 80, 0.1)', padding: '4px 10px', borderRadius: '12px', border: '1px solid rgba(76, 175, 80, 0.3)' }}>
             <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: onlineDrivers > 0 ? '#4caf50' : '#ff6b6b', boxShadow: onlineDrivers > 0 ? '0 0 8px #4caf50' : 'none' }}></div>
-            <span style={{ fontSize: '12px', color: 'var(--text-soft)' }}>
-              {onlineDrivers > 0 ? `На смене: ${onlineDrivers}` : 'Нет водителей на смене'}
-            </span>
+            <span style={{ fontSize: '12px', color: 'var(--text-soft)' }}>{onlineDrivers > 0 ? `На смене: ${onlineDrivers}` : 'Нет водителей'}</span>
           </div>
         </div>
-        
         <div className="header-actions">
           <button className="settings-btn" onClick={() => setShowSettings(true)}>⚙️</button>
           {currentUser.avatar_url ? <img src={currentUser.avatar_url} className="avatar-small" /> : <div className="avatar-small">{currentUser.username[0]}</div>}
@@ -259,49 +241,32 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
               </>
             ) : (
               <>
-                <label>Что доставить<input type="text" value={deliveryItem} onChange={(e) => setDeliveryItem(e.target.value)} placeholder="2 литра молока, хлеб" required /></label>
-                <label>Из какого магазина<input type="text" value={deliveryFrom} onChange={(e) => setDeliveryFrom(e.target.value)} placeholder="Магнит на Ленина" required /></label>
+                <label>Что доставить<input type="text" value={deliveryItem} onChange={(e) => setDeliveryItem(e.target.value)} placeholder="Молоко" required /></label>
+                <label>Из какого магазина<input type="text" value={deliveryFrom} onChange={(e) => setDeliveryFrom(e.target.value)} placeholder="Магнит" required /></label>
                 <label>Куда доставить<div className="input-with-map"><input type="text" value={addressTo} onChange={(e) => setAddressTo(e.target.value)} placeholder="ул. Союзная 20" required /><button type="button" className="map-btn" onClick={() => setShowMap('to')}>📍</button></div></label>
               </>
             )}
-            
-            <label>Комментарий водителю (необязательно)
-              <input 
-                type="text" 
-                value={comment} 
-                onChange={(e) => setComment(e.target.value)} 
-                placeholder="Например: 2-й подъезд, код 1234" 
-                maxLength={100}
-              />
-            </label>
-
+            <label>Комментарий (необязательно)<input type="text" value={comment} onChange={(e) => setComment(e.target.value)} placeholder="2-й подъезд" maxLength={100} /></label>
             <div className="kind-toggle" style={{ marginTop: '10px' }}>
               <button type="button" className={orderTimeType === 'now' ? 'active' : ''} onClick={() => setOrderTimeType('now')}>Сейчас</button>
               <button type="button" className={orderTimeType === 'scheduled' ? 'active' : ''} onClick={() => setOrderTimeType('scheduled')}>⏰ Ко времени</button>
             </div>
-
             {orderTimeType === 'scheduled' && (
               <div style={{ display: 'flex', gap: '10px', marginBottom: '10px' }}>
-                <label style={{ flex: 1 }}>Дата
-                  <input type="date" value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} required />
-                </label>
-                <label style={{ flex: 1 }}>Время
-                  <input type="time" value={scheduledTime} onChange={(e) => setScheduledTime(e.target.value)} required />
-                </label>
+                <label style={{ flex: 1 }}>Дата<input type="date" value={scheduledDate} onChange={(e) => setScheduledDate(e.target.value)} required /></label>
+                <label style={{ flex: 1 }}>Время<input type="time" value={scheduledTime} onChange={(e) => setScheduledTime(e.target.value)} required /></label>
               </div>
             )}
-
             {error && <div className="error-box">⚠️ {error}</div>}
-            <button type="submit" className="btn-primary" disabled={loading}>{loading ? 'Отправка...' : (orderTimeType === 'now' ? '🚖 Вызвать такси' : '⏰ Заказать ко времени')}</button>
+            <button type="submit" className="btn-primary" disabled={loading}>{loading ? 'Отправка...' : (orderTimeType === 'now' ? '🚖 Вызвать такси' : '⏰ Заказать')}</button>
           </form>
         )}
 
         {tab === 'order' && activeOrder && (
           <div className="active-order">
             <div className="order-status">
-              {getStatusLabel(activeOrder.status)}
-              {/* ТАЙМЕР ОЖИДАНИЯ */}
-              {activeOrder.status === 'pending' && timeLeft > 0 && (
+              {activeOrder.price_status === 'offered' && activeOrder.proposed_price ? '💰 Водитель предлагает цену' : getStatusLabel(activeOrder.status)}
+              {activeOrder.status === 'pending' && activeOrder.price_status !== 'offered' && timeLeft > 0 && (
                 <div style={{ fontSize: '12px', fontWeight: 'normal', marginTop: '5px', color: 'var(--text-soft)' }}>
                   Переназначение через: {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
                 </div>
@@ -321,8 +286,22 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
                 <><div className="order-row"><span>Доставить:</span> {activeOrder.delivery_item}</div><div className="order-row"><span>Из:</span> {activeOrder.delivery_from}</div><div className="order-row"><span>Куда:</span> {activeOrder.address_to}</div></>
               )}
               {activeOrder.comment && <div className="order-row"><span>Комментарий:</span> <i>{activeOrder.comment}</i></div>}
-              <div className="order-row"><span>Цена:</span> <strong>{activeOrder.price} ₽</strong></div>
+              
+              {/* БЛОК ЦЕНЫ */}
+              {activeOrder.price_status === 'offered' && activeOrder.proposed_price ? (
+                <div style={{ marginTop: '15px', padding: '15px', background: 'rgba(255, 215, 0, 0.1)', border: '1px solid var(--yellow)', borderRadius: '12px', textAlign: 'center' }}>
+                  <div style={{ fontSize: '14px', color: 'var(--text-soft)', marginBottom: '10px' }}>Водитель предложил:</div>
+                  <div style={{ fontSize: '24px', fontWeight: 'bold', color: 'var(--yellow)', marginBottom: '15px' }}>{activeOrder.proposed_price} ₽</div>
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <button onClick={() => handleConfirmPrice(true)} className="btn-success" style={{ flex: 1, padding: '12px' }}>✅ Согласен</button>
+                    <button onClick={() => handleConfirmPrice(false)} className="btn-danger" style={{ flex: 1, padding: '12px' }}>❌ Отказаться</button>
+                  </div>
+                </div>
+              ) : (
+                <div className="order-row"><span>Цена:</span> <strong>{activeOrder.price ? `${activeOrder.price} ₽` : 'Таксометр (уточните)'}</strong></div>
+              )}
             </div>
+
             {activeOrder.driver_name && (
               <div className="driver-info">
                 <div className="driver-title">🚗 Водитель</div>
@@ -333,7 +312,7 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
               </div>
             )}
             <div className="order-actions">
-              <button className="btn-secondary" onClick={() => setShowChat(!showChat)}>💬 {showChat ? 'Скрыть чат' : 'Написать диспетчеру'}</button>
+              <button className="btn-secondary" onClick={() => setShowChat(!showChat)}>💬 {showChat ? 'Скрыть чат' : 'Написать'}</button>
               <button className="btn-danger" onClick={handleCancel}>❌ Отменить заказ</button>
             </div>
             {showChat && (
@@ -366,35 +345,12 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
         <div className="modal-overlay" style={{ zIndex: 1200 }}>
           <div className="settings-modal" style={{ maxWidth: '350px', textAlign: 'center' }}>
             <h2 style={{ color: 'var(--yellow)', marginBottom: '10px' }}>Оцените поездку</h2>
-            <p style={{ color: 'var(--text-soft)', marginBottom: '20px' }}>Как вам водитель?</p>
-            
             <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', marginBottom: '20px' }}>
               {[1, 2, 3, 4, 5].map((star) => (
-                <button
-                  key={star}
-                  onClick={() => setRatingValue(star)}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    fontSize: '40px',
-                    cursor: 'pointer',
-                    color: star <= ratingValue ? 'var(--yellow)' : 'var(--black-hover)',
-                    transition: 'color 0.2s'
-                  }}
-                >
-                  ★
-                </button>
+                <button key={star} onClick={() => setRatingValue(star)} style={{ background: 'none', border: 'none', fontSize: '40px', cursor: 'pointer', color: star <= ratingValue ? 'var(--yellow)' : 'var(--black-hover)' }}>★</button>
               ))}
             </div>
-
-            <button 
-              className="btn-primary" 
-              onClick={handleRateSubmit} 
-              disabled={ratingLoading || !ratingValue}
-              style={{ width: '100%', padding: '15px' }}
-            >
-              {ratingLoading ? 'Отправка...' : 'Отправить оценку'}
-            </button>
+            <button className="btn-primary" onClick={handleRateSubmit} disabled={ratingLoading || !ratingValue} style={{ width: '100%', padding: '15px' }}>{ratingLoading ? 'Отправка...' : 'Отправить'}</button>
           </div>
         </div>
       )}

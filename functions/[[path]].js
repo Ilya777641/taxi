@@ -9,24 +9,20 @@ app.use('*', cors({
 }));
 
 // ============================================================
-// НАСТРОЙКИ SMS.RU (ВСТАВЬ СВОЙ API_ID!)
+// НАСТРОЙКИ SMS.RU
 // ============================================================
-const SMSRU_API_ID = 'F8508EFF-8C1E-0C52-6498-D14EBA1B50E6';
+const SMSRU_API_ID = 'ВСТАВЬ_СВОЙ_API_ID_ИЗ_ЛИЧНОГО_КАБИНЕТА_SMSRU';
 
 // ============================================================
-// ОТПРАВКА PUSH (OneSignal v16 - через external_id)
+// ОТПРАВКА PUSH
 // ============================================================
 async function sendPush(env, externalIds, title, message) {
   const ids = (externalIds || []).map(id => String(id));
   if (ids.length === 0) return;
-
   try {
-    const response = await fetch('https://api.onesignal.com/notifications', {
+    await fetch('https://api.onesignal.com/notifications', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Key ${env.ONESIGNAL_REST_API_KEY}`,
-      },
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Key ${env.ONESIGNAL_REST_API_KEY}` },
       body: JSON.stringify({
         app_id: env.ONESIGNAL_APP_ID,
         include_aliases: { external_id: ids },
@@ -35,11 +31,7 @@ async function sendPush(env, externalIds, title, message) {
         contents: { en: message, ru: message },
       }),
     });
-    const data = await response.json();
-    console.log('PUSH RESPONSE:', JSON.stringify(data));
-  } catch (err) {
-    console.error('PUSH FETCH ERROR:', err);
-  }
+  } catch (err) { console.error('PUSH ERROR:', err); }
 }
 
 // ============================================================
@@ -64,9 +56,7 @@ async function hashPassword(password) {
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
   return Array.from(new Uint8Array(hashBuffer)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
-async function verifyPassword(password, hash) {
-  return (await hashPassword(password)) === hash;
-}
+async function verifyPassword(password, hash) { return (await hashPassword(password)) === hash; }
 async function createJWT(payload, secret) {
   const header = { alg: 'HS256', typ: 'JWT' };
   const now = Math.floor(Date.now() / 1000);
@@ -102,9 +92,7 @@ async function authRequired(c, next) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) return c.json({ error: 'Не авторизован' }, 401);
   const payload = await verifyJWT(authHeader.slice(7), c.env.JWT_SECRET || 'taxi-secret-key-change');
   if (!payload) return c.json({ error: 'Токен недействителен' }, 401);
-  c.set('userId', payload.id);
-  c.set('username', payload.username);
-  c.set('role', payload.role);
+  c.set('userId', payload.id); c.set('username', payload.username); c.set('role', payload.role);
   await next();
 }
 async function adminRequired(c, next) {
@@ -130,7 +118,6 @@ async function calculatePrice(db, address) {
     if (isHome(kw)) continue;
     if (words.some(w => w === kw)) return { price: loc.price, type: 'long', found: true, matched: loc.display_name };
   }
-
   const stResult = await db.prepare('SELECT keyword, display_name, price FROM taxi_streets').all();
   for (const st of (stResult.results || [])) {
     const kw = st.keyword.toLowerCase();
@@ -152,13 +139,9 @@ app.get('/api/ping', async (c) => {
 // ============================================================
 app.get('/api/drivers/online', async (c) => {
   try {
-    const result = await c.env.DB.prepare(
-      "SELECT COUNT(*) as count FROM taxi_users WHERE role = 'driver' AND is_on_shift = 1 AND status = 'active'"
-    ).first();
+    const result = await c.env.DB.prepare("SELECT COUNT(*) as count FROM taxi_users WHERE role = 'driver' AND is_on_shift = 1 AND status = 'active'").first();
     return c.json({ count: result?.count || 0 });
-  } catch (err) {
-    return c.json({ count: 0 });
-  }
+  } catch (err) { return c.json({ count: 0 }); }
 });
 
 // ============================================================
@@ -168,16 +151,11 @@ app.post('/api/auth/register/init-call', async (c) => {
   try {
     const { phone } = await c.req.json();
     if (!phone || phone.length < 10) return c.json({ error: 'Введите корректный номер' }, 400);
-
     const cleanPhone = phone.replace(/\D/g, '');
     const url = `https://sms.ru/callcheck/add?api_id=${SMSRU_API_ID}&phone=${cleanPhone}&json=1`;
     const res = await fetch(url);
     const data = await res.json();
-
-    if (data.status !== 'OK') {
-      return c.json({ error: data.status_text || 'Ошибка инициализации звонка' }, 500);
-    }
-
+    if (data.status !== 'OK') return c.json({ error: data.status_text || 'Ошибка инициализации звонка' }, 500);
     return c.json({ success: true, call_phone: data.call_phone_pretty, check_id: data.check_id });
   } catch (err) { return c.json({ error: 'Ошибка сервера' }, 500); }
 });
@@ -188,9 +166,7 @@ app.post('/api/auth/register/check-status', async (c) => {
     const url = `https://sms.ru/callcheck/status?api_id=${SMSRU_API_ID}&check_id=${check_id}&json=1`;
     const res = await fetch(url);
     const data = await res.json();
-
     if (data.status !== 'OK') return c.json({ error: 'Ошибка проверки статуса' }, 500);
-
     if (data.check_status === 401) return c.json({ success: true, verified: true });
     else if (data.check_status === 1) return c.json({ success: true, verified: false, status: 'waiting' });
     else return c.json({ success: false, verified: false, error: data.check_status_text || 'Ошибка проверки', status: data.check_status });
@@ -205,28 +181,21 @@ app.post('/api/auth/register', async (c) => {
     if (!['client', 'driver'].includes(role)) return c.json({ error: 'Роль: client или driver' }, 400);
     if (!phone) return c.json({ error: 'Введите телефон' }, 400);
     if (!check_id) return c.json({ error: 'Подтвердите номер телефона' }, 400);
-
     const checkUrl = `https://sms.ru/callcheck/status?api_id=${SMSRU_API_ID}&check_id=${check_id}&json=1`;
     const checkRes = await fetch(checkUrl);
     const checkData = await checkRes.json();
-
-    if (checkData.status !== 'OK' || checkData.check_status !== 401) {
-      return c.json({ error: 'Номер телефона не подтвержден или время истекло' }, 400);
-    }
+    if (checkData.status !== 'OK' || checkData.check_status !== 401) return c.json({ error: 'Номер не подтвержден' }, 400);
 
     const existing = await c.env.DB.prepare('SELECT id FROM taxi_users WHERE username = ? AND password_hash = ?').bind(username.trim(), await hashPassword(password)).first();
-    if (existing) return c.json({ error: 'Пользователь с таким именем и паролем уже существует.' }, 400);
-
+    if (existing) return c.json({ error: 'Пользователь уже существует.' }, 400);
     const phoneExists = await c.env.DB.prepare('SELECT id FROM taxi_users WHERE phone = ?').bind(phone).first();
     if (phoneExists) return c.json({ error: 'Этот номер уже зарегистрирован' }, 400);
 
     const hash = await hashPassword(password);
     const status = role === 'driver' ? 'pending' : 'active';
-    
     const result = await c.env.DB.prepare(
       `INSERT INTO taxi_users (username, password_hash, role, phone, car_model, car_number, status, phone_verified) VALUES (?, ?, ?, ?, ?, ?, ?, 1) RETURNING id, username, role, status`
     ).bind(username.trim(), hash, role, phone, car_model || null, car_number || null, status).first();
-
     const token = status === 'active' ? await createJWT({ id: result.id, username: result.username, role: result.role }, c.env.JWT_SECRET || 'taxi-secret-key-change') : null;
     return c.json({ token, user: result, pending: status === 'pending' });
   } catch (err) { return c.json({ error: 'Ошибка регистрации' }, 500); }
@@ -237,16 +206,11 @@ app.post('/api/auth/login', async (c) => {
     const { username, password } = await c.req.json();
     const users = await c.env.DB.prepare('SELECT id, username, password_hash, role, status, avatar_url, phone_verified, phone FROM taxi_users WHERE username = ?').bind(username?.trim()).all();
     if (!users.results || users.results.length === 0) return c.json({ error: 'Неверное имя или пароль' }, 401);
-
     let matchedUser = null;
-    for (const u of users.results) {
-      if (await verifyPassword(password, u.password_hash)) { matchedUser = u; break; }
-    }
-
+    for (const u of users.results) if (await verifyPassword(password, u.password_hash)) { matchedUser = u; break; }
     if (!matchedUser) return c.json({ error: 'Неверное имя или пароль' }, 401);
     if (matchedUser.status === 'blocked') return c.json({ error: 'Заблокирован' }, 403);
     if (matchedUser.status === 'pending') return c.json({ error: 'На модерации', pending: true }, 403);
-
     const token = await createJWT({ id: matchedUser.id, username: matchedUser.username, role: matchedUser.role }, c.env.JWT_SECRET || 'taxi-secret-key-change');
     return c.json({ token, user: { id: matchedUser.id, username: matchedUser.username, role: matchedUser.role, avatar_url: matchedUser.avatar_url, phone_verified: matchedUser.phone_verified, phone: matchedUser.phone } });
   } catch (err) { return c.json({ error: 'Ошибка входа' }, 500); }
@@ -297,7 +261,7 @@ app.post('/api/auth/onesignal', authRequired, async (c) => {
 });
 
 // ============================================================
-// ВЕРИФИКАЦИЯ В НАСТРОЙКАХ
+// ВЕРИФИКАЦИЯ ЗВОНКОМ
 // ============================================================
 app.post('/api/auth/callcheck/init', authRequired, async (c) => {
   try {
@@ -307,7 +271,7 @@ app.post('/api/auth/callcheck/init', authRequired, async (c) => {
     const url = `https://sms.ru/callcheck/add?api_id=${SMSRU_API_ID}&phone=${cleanPhone}&json=1`;
     const res = await fetch(url);
     const data = await res.json();
-    if (data.status !== 'OK') return c.json({ error: data.status_text || 'Ошибка инициализации звонка' }, 500);
+    if (data.status !== 'OK') return c.json({ error: data.status_text || 'Ошибка инициализации' }, 500);
     await c.env.DB.prepare('UPDATE taxi_users SET phone = ?, sms_code = ? WHERE id = ?').bind(phone, data.check_id, c.get('userId')).run();
     return c.json({ success: true, call_phone: data.call_phone_pretty, check_id: data.check_id });
   } catch (err) { return c.json({ error: 'Ошибка сервера' }, 500); }
@@ -319,14 +283,14 @@ app.post('/api/auth/callcheck/status', authRequired, async (c) => {
     const url = `https://sms.ru/callcheck/status?api_id=${SMSRU_API_ID}&check_id=${check_id}&json=1`;
     const res = await fetch(url);
     const data = await res.json();
-    if (data.status !== 'OK') return c.json({ error: 'Ошибка проверки статуса' }, 500);
+    if (data.status !== 'OK') return c.json({ error: 'Ошибка проверки' }, 500);
     if (data.check_status === 401) {
       await c.env.DB.prepare('UPDATE taxi_users SET phone_verified = 1, sms_code = NULL WHERE id = ?').bind(c.get('userId')).run();
       return c.json({ success: true, verified: true });
     } else if (data.check_status === 1) {
       return c.json({ success: true, verified: false, status: 'waiting' });
     } else {
-      return c.json({ success: false, verified: false, error: data.check_status_text || 'Ошибка проверки', status: data.check_status });
+      return c.json({ success: false, verified: false, error: data.check_status_text || 'Ошибка', status: data.check_status });
     }
   } catch (err) { return c.json({ error: 'Ошибка сервера' }, 500); }
 });
@@ -363,10 +327,8 @@ app.post('/api/driver/car', authRequired, async (c) => {
 });
 
 // ============================================================
-// ЗАКАЗЫ (ЛОГИКА ОЧЕРЕДИ)
+// ЗАКАЗЫ
 // ============================================================
-
-// СОЗДАНИЕ ЗАКАЗА (назначаем конкретному водителю)
 app.post('/api/orders', authRequired, async (c) => {
   try {
     if (c.get('role') !== 'client') return c.json({ error: 'Только клиенты' }, 403);
@@ -376,34 +338,32 @@ app.post('/api/orders', authRequired, async (c) => {
     if (order_kind === 'delivery' && (!delivery_item || !delivery_from)) return c.json({ error: 'Введите что и откуда доставить' }, 400);
 
     const priceInfo = await calculatePrice(c.env.DB, address_to);
-    if (!priceInfo.found) return c.json({ error: 'Не могу определить цену.' }, 400);
-    let finalPrice = priceInfo.price;
+    
+    let finalPrice = null;
+    let priceStatus = 'offered'; // Если цену не нашли, водитель должен предложить
 
-    // Ищем водителя с наименьшей позицией в очереди (на смене, без активного заказа)
+    if (priceInfo.found) {
+      finalPrice = priceInfo.price;
+      priceStatus = 'agreed'; // Цена известна сразу
+    }
+
+    // Ищем водителя
     const nextDriver = await c.env.DB.prepare(`
       SELECT id FROM taxi_users 
-      WHERE role = 'driver' 
-        AND is_on_shift = 1 
-        AND status = 'active'
+      WHERE role = 'driver' AND is_on_shift = 1 AND status = 'active'
         AND id NOT IN (SELECT driver_id FROM taxi_orders WHERE status IN ('accepted', 'on_way', 'waiting') AND driver_id IS NOT NULL)
-      ORDER BY queue_position ASC, last_order_at ASC 
-      LIMIT 1
+      ORDER BY queue_position ASC, last_order_at ASC LIMIT 1
     `).first();
-
     const assignedTo = nextDriver ? nextDriver.id : null;
 
-    // Создаем заказ
     const result = await c.env.DB.prepare(
-      `INSERT INTO taxi_orders (client_id, order_kind, order_type, address, address_to, delivery_item, delivery_from, price, status, comment, scheduled_at, assigned_to) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?) RETURNING *`
-    ).bind(c.get('userId'), order_kind || 'taxi', priceInfo.type, address || null, address_to.trim(), delivery_item || null, delivery_from || null, finalPrice, comment || null, scheduled_at || null, assignedTo).first();
+      `INSERT INTO taxi_orders (client_id, order_kind, order_type, address, address_to, delivery_item, delivery_from, price, status, comment, scheduled_at, assigned_to, price_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?) RETURNING *`
+    ).bind(c.get('userId'), order_kind || 'taxi', priceInfo.type, address || null, address_to.trim(), delivery_item || null, delivery_from || null, finalPrice, comment || null, scheduled_at || null, assignedTo, priceStatus).first();
 
-    // Пуш летит ТОЛЬКО назначенному водителю
     if (assignedTo) {
-      const driver = await c.env.DB.prepare('SELECT onesignal_id FROM taxi_users WHERE id = ?').bind(assignedTo).first();
-      if (driver && driver.onesignal_id) {
-        const timeText = scheduled_at ? `[⏰ Предзаказ] ` : '';
-        await sendPush(c.env, [assignedTo], '🚖 Новый заказ для вас!', `${timeText}${address || delivery_from} → ${address_to} (${finalPrice} ₽)`);
-      }
+      const timeText = scheduled_at ? `[⏰ Предзаказ] ` : '';
+      const priceText = finalPrice ? `${finalPrice} ₽` : 'Таксометр (уточните)';
+      await sendPush(c.env, [assignedTo], '🚖 Новый заказ!', `${timeText}${address || delivery_from} → ${address_to} (${priceText})`);
     }
 
     return c.json(result);
@@ -425,6 +385,29 @@ app.get('/api/orders/my-history', authRequired, async (c) => {
   return c.json(orders.results || []);
 });
 
+// ОТВЕТ КЛИЕНТА НА ЦЕНУ (Согласен/Отказ)
+app.post('/api/orders/:id/confirm-price', authRequired, async (c) => {
+  if (c.get('role') !== 'client') return c.json({ error: 'Только клиенты' }, 403);
+  const orderId = c.req.param('id');
+  const { agreed } = await c.req.json();
+  const order = await c.env.DB.prepare('SELECT driver_id, proposed_price FROM taxi_orders WHERE id = ? AND client_id = ? AND price_status = ?').bind(orderId, c.get('userId'), 'offered').first();
+  if (!order) return c.json({ error: 'Нет предложения по цене' }, 404);
+
+  if (agreed) {
+    await c.env.DB.prepare('UPDATE taxi_orders SET price = ?, price_status = ? WHERE id = ?').bind(order.proposed_price, 'agreed', orderId).run();
+    if (order.driver_id) {
+      await sendPush(c.env, [order.driver_id], '✅ Клиент согласен!', `Цена ${order.proposed_price} ₽ подтверждена.`);
+    }
+    return c.json({ success: true, status: 'agreed' });
+  } else {
+    await c.env.DB.prepare('UPDATE taxi_orders SET status = ?, price_status = ? WHERE id = ?').bind('cancelled', 'rejected', orderId).run();
+    if (order.driver_id) {
+      await sendPush(c.env, [order.driver_id], '❌ Клиент отказался', 'Заказ отменен, цена не устроила.');
+    }
+    return c.json({ success: true, status: 'rejected' });
+  }
+});
+
 app.post('/api/orders/:id/cancel', authRequired, async (c) => {
   const orderId = c.req.param('id');
   const result = await c.env.DB.prepare(`UPDATE taxi_orders SET status = 'cancelled', completed_at = datetime('now') WHERE id = ? AND client_id = ? AND status IN ('pending', 'accepted', 'on_way', 'waiting') RETURNING *`).bind(orderId, c.get('userId')).first();
@@ -436,23 +419,11 @@ app.post('/api/orders/:id/rate', authRequired, async (c) => {
   if (c.get('role') !== 'client') return c.json({ error: 'Только клиенты' }, 403);
   const orderId = c.req.param('id');
   const { rating } = await c.req.json();
-
   if (!rating || rating < 1 || rating > 5) return c.json({ error: 'Оценка от 1 до 5' }, 400);
-
-  const result = await c.env.DB.prepare(
-    `UPDATE taxi_orders SET client_rating = ? WHERE id = ? AND client_id = ? AND status = 'completed' AND client_rating IS NULL RETURNING driver_id`
-  ).bind(rating, orderId, c.get('userId')).first();
-
+  const result = await c.env.DB.prepare(`UPDATE taxi_orders SET client_rating = ? WHERE id = ? AND client_id = ? AND status = 'completed' AND client_rating IS NULL RETURNING driver_id`).bind(rating, orderId, c.get('userId')).first();
   if (!result || !result.driver_id) return c.json({ error: 'Заказ не найден или уже оценен' }, 404);
-
-  const stats = await c.env.DB.prepare(
-    `SELECT AVG(client_rating) as avg_rating FROM taxi_orders WHERE driver_id = ? AND client_rating IS NOT NULL`
-  ).bind(result.driver_id).first();
-
-  if (stats && stats.avg_rating) {
-    await c.env.DB.prepare('UPDATE taxi_users SET rating = ? WHERE id = ?').bind(stats.avg_rating, result.driver_id).run();
-  }
-
+  const stats = await c.env.DB.prepare(`SELECT AVG(client_rating) as avg_rating FROM taxi_orders WHERE driver_id = ? AND client_rating IS NOT NULL`).bind(result.driver_id).first();
+  if (stats && stats.avg_rating) await c.env.DB.prepare('UPDATE taxi_users SET rating = ? WHERE id = ?').bind(stats.avg_rating, result.driver_id).run();
   return c.json({ success: true });
 });
 
@@ -460,19 +431,10 @@ app.post('/api/orders/:id/driver-cancel', authRequired, async (c) => {
   if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
   const orderId = c.req.param('id');
   const { reason } = await c.req.json();
-  
-  if (!reason || !reason.trim()) return c.json({ error: 'Укажите причину отмены' }, 400);
-
-  const result = await c.env.DB.prepare(
-    `UPDATE taxi_orders SET status = 'cancelled', completed_at = datetime('now'), cancel_reason = ? WHERE id = ? AND driver_id = ? AND status IN ('accepted', 'on_way', 'waiting') RETURNING *`
-  ).bind(reason.trim(), orderId, c.get('userId')).first();
-  
-  if (!result) return c.json({ error: 'Заказ не найден или уже завершен' }, 404);
-
-  try {
-    await sendPush(c.env, [result.client_id], '❌ Заказ отменен водителем', `Причина: ${reason.trim()}`);
-  } catch (err) {}
-
+  if (!reason || !reason.trim()) return c.json({ error: 'Укажите причину' }, 400);
+  const result = await c.env.DB.prepare(`UPDATE taxi_orders SET status = 'cancelled', completed_at = datetime('now'), cancel_reason = ? WHERE id = ? AND driver_id = ? AND status IN ('accepted', 'on_way', 'waiting') RETURNING *`).bind(reason.trim(), orderId, c.get('userId')).first();
+  if (!result) return c.json({ error: 'Заказ не найден или завершен' }, 404);
+  try { await sendPush(c.env, [result.client_id], '❌ Заказ отменен водителем', `Причина: ${reason.trim()}`); } catch (err) {}
   return c.json(result);
 });
 
@@ -483,40 +445,23 @@ app.post('/api/driver/shift', authRequired, async (c) => {
   if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
   const { is_on_shift } = await c.req.json();
   const shiftVal = is_on_shift ? 1 : 0;
-
   const driver = await c.env.DB.prepare('SELECT is_on_shift, queue_position FROM taxi_users WHERE id = ?').bind(c.get('userId')).first();
-
-  // Если статус не меняется, ничего не делаем
-  if (driver.is_on_shift === shiftVal) {
-    return c.json({ success: true, is_on_shift: shiftVal, queue_position: driver.queue_position });
-  }
+  if (driver.is_on_shift === shiftVal) return c.json({ success: true, is_on_shift: shiftVal, queue_position: driver.queue_position });
 
   let queuePos = 0;
-
   if (shiftVal === 1) {
-    // ВЫХОД НА СМЕНУ: ставим в конец
     const max = await c.env.DB.prepare('SELECT COALESCE(MAX(queue_position), 0) AS max_pos FROM taxi_users WHERE role = ? AND is_on_shift = 1').bind('driver').first();
     queuePos = (max.max_pos || 0) + 1;
-    await c.env.DB.prepare('UPDATE taxi_users SET is_on_shift = ?, queue_position = ? WHERE id = ?')
-      .bind(1, queuePos, c.get('userId')).run();
+    await c.env.DB.prepare('UPDATE taxi_users SET is_on_shift = ?, queue_position = ? WHERE id = ?').bind(1, queuePos, c.get('userId')).run();
   } else {
-    // УХОД СО СМЕНЫ: сначала сбрасываем у себя, потом пересчитываем у остальных
     await c.env.DB.prepare('UPDATE taxi_users SET is_on_shift = 0, queue_position = 0 WHERE id = ?').bind(c.get('userId')).run();
-
-    // Получаем всех, кто остался на смене, сортируем по их текущей очереди
-    const remainingDrivers = await c.env.DB.prepare(
-      `SELECT id FROM taxi_users WHERE role = 'driver' AND is_on_shift = 1 ORDER BY queue_position ASC, id ASC`
-    ).all();
-
-    // Пересчитываем очередь с 1
+    const remainingDrivers = await c.env.DB.prepare(`SELECT id FROM taxi_users WHERE role = 'driver' AND is_on_shift = 1 ORDER BY queue_position ASC, id ASC`).all();
     let newPos = 1;
     for (const d of (remainingDrivers.results || [])) {
       await c.env.DB.prepare('UPDATE taxi_users SET queue_position = ? WHERE id = ?').bind(newPos, d.id).run();
       newPos++;
     }
   }
-
-  // Возвращаем актуальный статус
   const updated = await c.env.DB.prepare('SELECT is_on_shift, queue_position FROM taxi_users WHERE id = ?').bind(c.get('userId')).first();
   return c.json({ success: true, is_on_shift: updated.is_on_shift, queue_position: updated.queue_position });
 });
@@ -528,62 +473,45 @@ app.post('/api/driver/delivery', authRequired, async (c) => {
   return c.json({ success: true });
 });
 
-// ВОДИТЕЛЬ ПОЛУЧАЕТ ТОЛЬКО СВОЙ ЗАКАЗ (по очереди)
 app.get('/api/driver/my-order', authRequired, async (c) => {
   if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
-
-  // 1. Проверяем, есть ли у водителя активный заказ
+  
   let order = await c.env.DB.prepare(
     `SELECT o.*, u.username AS client_name, u.phone AS client_phone FROM taxi_orders o JOIN taxi_users u ON u.id = o.client_id WHERE o.driver_id = ? AND o.status IN ('accepted', 'on_way', 'waiting') ORDER BY o.accepted_at DESC LIMIT 1`
   ).bind(c.get('userId')).first();
   if (order) return c.json({ order, type: 'active' });
 
-  // 2. ПРОВЕРКА ТАЙМАУТА (180 секунд = 3 минуты)
   const expiredOrder = await c.env.DB.prepare(
     `SELECT id FROM taxi_orders WHERE status = 'pending' AND assigned_to IS NOT NULL AND created_at <= datetime('now', '-180 seconds') LIMIT 1`
   ).first();
-
   if (expiredOrder) {
     const declined = await c.env.DB.prepare('SELECT declined_by FROM taxi_orders WHERE id = ?').bind(expiredOrder.id).first();
     const declinedArray = JSON.parse(declined?.declined_by || '[]');
-
     const nextDriver = await c.env.DB.prepare(`
-      SELECT id FROM taxi_users 
-      WHERE role = 'driver' 
-        AND is_on_shift = 1 
-        AND status = 'active'
+      SELECT id FROM taxi_users WHERE role = 'driver' AND is_on_shift = 1 AND status = 'active'
         AND id NOT IN (SELECT value FROM json_each(?))
         AND id NOT IN (SELECT driver_id FROM taxi_orders WHERE status IN ('accepted', 'on_way', 'waiting') AND driver_id IS NOT NULL)
-      ORDER BY queue_position ASC, last_order_at ASC 
-      LIMIT 1
+      ORDER BY queue_position ASC, last_order_at ASC LIMIT 1
     `).bind(JSON.stringify(declinedArray)).first();
-
-    if (nextDriver) {
-      await c.env.DB.prepare('UPDATE taxi_orders SET assigned_to = ? WHERE id = ?').bind(nextDriver.id, expiredOrder.id).run();
-    } else {
-      await c.env.DB.prepare('UPDATE taxi_orders SET assigned_to = NULL WHERE id = ?').bind(expiredOrder.id).run();
-    }
+    if (nextDriver) await c.env.DB.prepare('UPDATE taxi_orders SET assigned_to = ? WHERE id = ?').bind(nextDriver.id, expiredOrder.id).run();
+    else await c.env.DB.prepare('UPDATE taxi_orders SET assigned_to = NULL WHERE id = ?').bind(expiredOrder.id).run();
   }
 
-  // 3. Проверяем, есть ли заказ, назначенный конкретно этому водителю
   order = await c.env.DB.prepare(
     `SELECT o.*, u.username AS client_name, u.phone AS client_phone FROM taxi_orders o JOIN taxi_users u ON u.id = o.client_id WHERE o.assigned_to = ? AND o.status = 'pending' ORDER BY o.created_at ASC LIMIT 1`
   ).bind(c.get('userId')).first();
   if (order) return c.json({ order, type: 'assigned' });
 
-  // 4. Если водитель на смене и у него нет активного заказа — ищем свободный заказ
   const me = await c.env.DB.prepare('SELECT is_on_shift FROM taxi_users WHERE id = ?').bind(c.get('userId')).first();
   if (me?.is_on_shift) {
     const freeOrder = await c.env.DB.prepare(
       `SELECT o.*, u.username AS client_name, u.phone AS client_phone FROM taxi_orders o JOIN taxi_users u ON u.id = o.client_id WHERE o.status = 'pending' AND o.assigned_to IS NULL ORDER BY o.created_at ASC LIMIT 1`
     ).first();
-
     if (freeOrder) {
       await c.env.DB.prepare('UPDATE taxi_orders SET assigned_to = ? WHERE id = ?').bind(c.get('userId'), freeOrder.id).run();
       return c.json({ order: { ...freeOrder, assigned_to: c.get('userId') }, type: 'assigned' });
     }
   }
-
   return c.json({ order: null, type: 'idle' });
 });
 
@@ -592,121 +520,89 @@ app.get('/api/driver/my-history', authRequired, async (c) => {
   const orders = await c.env.DB.prepare(
     `SELECT o.*, u.username AS client_name FROM taxi_orders o JOIN taxi_users u ON u.id = o.client_id WHERE o.driver_id = ? AND o.status = 'completed' ORDER BY o.completed_at DESC LIMIT 50`
   ).bind(c.get('userId')).all();
-
   const stats = await c.env.DB.prepare(`
     SELECT 
       SUM(CASE WHEN date(completed_at) = date('now') THEN price ELSE 0 END) AS today,
       SUM(CASE WHEN completed_at >= date('now', '-7 days') THEN price ELSE 0 END) AS week,
       SUM(CASE WHEN completed_at >= date('now', '-30 days') THEN price ELSE 0 END) AS month,
       SUM(price) AS all_time
-    FROM taxi_orders 
-    WHERE driver_id = ? AND status = 'completed'
+    FROM taxi_orders WHERE driver_id = ? AND status = 'completed'
   `).bind(c.get('userId')).first();
-
   return c.json({ orders: orders.results || [], stats });
 });
 
 app.post('/api/driver/report', authRequired, async (c) => {
   if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
-  
   const driverId = c.get('userId');
-  
   try {
     const driver = await c.env.DB.prepare('SELECT shift_start_at FROM taxi_users WHERE id = ?').bind(driverId).first();
     if (!driver) return c.json({ error: 'Водитель не найден' }, 404);
-    if (!driver.shift_start_at) return c.json({ error: 'Вы не на смене или время смены не зафиксировано' }, 400);
-
+    if (!driver.shift_start_at) return c.json({ error: 'Вы не на смене' }, 400);
     const shiftStartMs = new Date(driver.shift_start_at).getTime();
     const shiftEnd = new Date();
-    
-    const orders = await c.env.DB.prepare(
-      `SELECT id, address, address_to, price, completed_at FROM taxi_orders WHERE driver_id = ? AND status = 'completed' AND completed_at >= datetime('now', '-1 day')`
-    ).bind(driverId).all();
-
-    const validOrders = (orders.results || []).filter(o => {
-      const orderTimeMs = new Date(o.completed_at).getTime();
-      return orderTimeMs >= shiftStartMs;
-    });
-
+    const orders = await c.env.DB.prepare(`SELECT id, address, address_to, price, completed_at FROM taxi_orders WHERE driver_id = ? AND status = 'completed' AND completed_at >= datetime('now', '-1 day')`).bind(driverId).all();
+    const validOrders = (orders.results || []).filter(o => new Date(o.completed_at).getTime() >= shiftStartMs);
     const ordersCount = validOrders.length;
     const totalEarnings = validOrders.reduce((sum, o) => sum + (o.price || 0), 0);
-
-    const result = await c.env.DB.prepare(
-      `INSERT INTO taxi_reports (driver_id, shift_start, shift_end, orders_count, total_earnings, orders_json) VALUES (?, ?, ?, ?, ?, ?) RETURNING id`
-    ).bind(driverId, new Date(shiftStartMs).toISOString(), shiftEnd.toISOString(), ordersCount, totalEarnings, JSON.stringify(validOrders)).first();
-
-    console.log('REPORT CREATED:', result.id, 'Orders:', ordersCount);
+    const result = await c.env.DB.prepare(`INSERT INTO taxi_reports (driver_id, shift_start, shift_end, orders_count, total_earnings, orders_json) VALUES (?, ?, ?, ?, ?, ?) RETURNING id`).bind(driverId, new Date(shiftStartMs).toISOString(), shiftEnd.toISOString(), ordersCount, totalEarnings, JSON.stringify(validOrders)).first();
     return c.json({ success: true, report_id: result.id });
-  } catch (err) {
-    console.error('REPORT ERROR:', err);
-    return c.json({ error: 'Ошибка при создании отчета: ' + err.message }, 500);
-  }
+  } catch (err) { return c.json({ error: 'Ошибка: ' + err.message }, 500); }
 });
 
-// ПРИНЯТИЕ ЗАКАЗА
+// ВОДИТЕЛЬ ПРЕДЛАГАЕТ ЦЕНУ
+app.post('/api/orders/:id/offer-price', authRequired, async (c) => {
+  if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
+  const orderId = c.req.param('id');
+  const { price } = await c.req.json();
+  if (!price || price <= 0) return c.json({ error: 'Введите корректную цену' }, 400);
+  const result = await c.env.DB.prepare(
+    `UPDATE taxi_orders SET proposed_price = ?, price_status = 'offered' WHERE id = ? AND assigned_to = ? AND status = 'pending' RETURNING *`
+  ).bind(price, orderId, c.get('userId')).first();
+  if (!result) return c.json({ error: 'Заказ не найден или не назначен вам' }, 404);
+
+  try {
+    await sendPush(c.env, [result.client_id], '💰 Водитель предложил цену', `${price} ₽. Согласны?`);
+  } catch (err) {}
+  return c.json(result);
+});
+
 app.post('/api/orders/:id/accept', authRequired, async (c) => {
   if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
   const orderId = c.req.param('id');
   const driverId = c.get('userId');
-  
   const result = await c.env.DB.prepare(
     `UPDATE taxi_orders SET driver_id = ?, status = 'accepted', accepted_at = datetime('now'), assigned_to = NULL WHERE id = ? AND status = 'pending' AND driver_id IS NULL RETURNING *`
   ).bind(driverId, orderId).first();
-  
   if (!result) return c.json({ error: 'Заказ уже занят' }, 409);
-
-  try {
-    await sendPush(c.env, [result.client_id], '🚖 Водитель найден!', 'Ваш заказ принят. Ожидайте прибытия машины.');
-  } catch (err) { console.error('PUSH ACCEPT ERROR:', err); }
-
-  // Обновляем очередь (чтобы водитель уехал в конец)
+  try { await sendPush(c.env, [result.client_id], '🚖 Водитель найден!', 'Ваш заказ принят.'); } catch (err) {}
   const max = await c.env.DB.prepare('SELECT COALESCE(MAX(queue_position), 0) AS max_pos FROM taxi_users WHERE role = ? AND is_on_shift = 1').bind('driver').first();
   await c.env.DB.prepare('UPDATE taxi_users SET queue_position = ?, last_order_at = datetime("now") WHERE id = ?').bind((max.max_pos || 0) + 1, driverId).run();
-  
   return c.json(result);
 });
 
-// ОТКАЗ ОТ ЗАКАЗА (переназначаем другому)
 app.post('/api/orders/:id/decline', authRequired, async (c) => {
   if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
   const orderId = c.req.param('id');
   const driverId = c.get('userId');
-  
-  // 1. Записываем, что водитель отказался
   const order = await c.env.DB.prepare('SELECT declined_by, assigned_to FROM taxi_orders WHERE id = ?').bind(orderId).first();
   if (!order) return c.json({ error: 'Не найден' }, 404);
-  
   const declined = JSON.parse(order.declined_by || '[]');
   if (!declined.includes(driverId)) declined.push(driverId);
-
-  // 2. Ищем следующего водителя в очереди
   const nextDriver = await c.env.DB.prepare(`
-    SELECT id FROM taxi_users 
-    WHERE role = 'driver' 
-      AND is_on_shift = 1 
-      AND status = 'active'
+    SELECT id FROM taxi_users WHERE role = 'driver' AND is_on_shift = 1 AND status = 'active'
       AND id NOT IN (SELECT value FROM json_each(?))
       AND id NOT IN (SELECT driver_id FROM taxi_orders WHERE status IN ('accepted', 'on_way', 'waiting') AND driver_id IS NOT NULL)
-    ORDER BY queue_position ASC, last_order_at ASC 
-    LIMIT 1
+    ORDER BY queue_position ASC, last_order_at ASC LIMIT 1
   `).bind(JSON.stringify(declined)).first();
-
   const newAssignedTo = nextDriver ? nextDriver.id : null;
-
-  // 3. Обновляем заказ (назначаем нового или снимаем назначение)
   await c.env.DB.prepare('UPDATE taxi_orders SET declined_by = ?, assigned_to = ? WHERE id = ?').bind(JSON.stringify(declined), newAssignedTo, orderId).run();
-
-  // 4. Пуш новому водителю
   if (newAssignedTo) {
     const orderData = await c.env.DB.prepare('SELECT address, address_to, delivery_from, price, scheduled_at FROM taxi_orders WHERE id = ?').bind(orderId).first();
     const timeText = orderData.scheduled_at ? `[⏰ Предзаказ] ` : '';
-    await sendPush(c.env, [newAssignedTo], '🚖 Новый заказ для вас!', `${timeText}${orderData.address || orderData.delivery_from} → ${orderData.address_to} (${orderData.price} ₽)`);
+    await sendPush(c.env, [newAssignedTo], '🚖 Новый заказ!', `${timeText}${orderData.address || orderData.delivery_from} → ${orderData.address_to} (${orderData.price || 'Таксометр'})`);
   }
-
-  // 5. Обновляем очередь отказавшегося (он едет в конец)
   const max = await c.env.DB.prepare('SELECT COALESCE(MAX(queue_position), 0) AS max_pos FROM taxi_users WHERE role = ? AND is_on_shift = 1').bind('driver').first();
   await c.env.DB.prepare('UPDATE taxi_users SET queue_position = ? WHERE id = ?').bind((max.max_pos || 0) + 1, driverId).run();
-
   return c.json({ success: true, assigned_to: newAssignedTo });
 });
 
@@ -716,27 +612,19 @@ app.post('/api/orders/:id/status', authRequired, async (c) => {
   const { status } = await c.req.json();
   const allowed = ['on_way', 'waiting', 'completed'];
   if (!allowed.includes(status)) return c.json({ error: 'Неверный статус' }, 400);
-  
   const timeField = status === 'on_way' ? 'on_way_at' : status === 'waiting' ? 'waiting_at' : 'completed_at';
-  
   const result = await c.env.DB.prepare(
     `UPDATE taxi_orders SET status = ?, ${timeField} = datetime('now') WHERE id = ? AND driver_id = ? AND status IN ('accepted', 'on_way', 'waiting') RETURNING *`
   ).bind(status, orderId, c.get('userId')).first();
-  
   if (!result) return c.json({ error: 'Не найден' }, 404);
-
   try {
     const messages = {
       'on_way': { title: '🚖 Водитель в пути', body: 'Ваш водитель уже выехал за вами!' },
-      'waiting': { title: '📍 Водитель на месте', body: 'Водитель ожидает вас по адресу. Пожалуйста, выходите.' },
-      'completed': { title: '✅ Поездка завершена', body: 'Спасибо за поездку! Будем рады видеть вас снова.' }
+      'waiting': { title: '📍 Водитель на месте', body: 'Водитель ожидает вас по адресу.' },
+      'completed': { title: '✅ Поездка завершена', body: 'Спасибо за поездку!' }
     };
-    const msg = messages[status];
-    if (msg) {
-      await sendPush(c.env, [result.client_id], msg.title, msg.body);
-    }
-  } catch (err) { console.error('PUSH STATUS ERROR:', err); }
-
+    if (messages[status]) await sendPush(c.env, [result.client_id], messages[status].title, messages[status].body);
+  } catch (err) {}
   return c.json(result);
 });
 
@@ -808,6 +696,11 @@ app.delete('/api/admin/drivers/:id', authRequired, adminRequired, async (c) => {
   return c.json({ success: true });
 });
 
+app.post('/api/admin/drivers/reset-queue', authRequired, adminRequired, async (c) => {
+  await c.env.DB.prepare(`UPDATE taxi_users SET queue_position = 0 WHERE role = 'driver'`).run();
+  return c.json({ success: true });
+});
+
 app.get('/api/admin/stats', authRequired, adminRequired, async (c) => {
   const todayOrders = await c.env.DB.prepare(`SELECT COUNT(*) as c FROM taxi_orders WHERE date(created_at) = date('now')`).first();
   const todayCompleted = await c.env.DB.prepare(`SELECT COUNT(*) as c FROM taxi_orders WHERE date(completed_at) = date('now') AND status = 'completed'`).first();
@@ -815,14 +708,10 @@ app.get('/api/admin/stats', authRequired, adminRequired, async (c) => {
   const revenueToday = await c.env.DB.prepare(`SELECT SUM(price) as s FROM taxi_orders WHERE date(completed_at) = date('now') AND status = 'completed'`).first();
   const revenueAll = await c.env.DB.prepare(`SELECT SUM(price) as s FROM taxi_orders WHERE status = 'completed'`).first();
   const totalClients = await c.env.DB.prepare(`SELECT COUNT(*) as c FROM taxi_users WHERE role = 'client'`).first();
-
   return c.json({
-    ordersToday: todayOrders.c || 0,
-    completedToday: todayCompleted.c || 0,
-    driversOnShift: onShift.c || 0,
-    revenueToday: revenueToday.s || 0,
-    revenueAll: revenueAll.s || 0,
-    totalClients: totalClients.c || 0
+    ordersToday: todayOrders.c || 0, completedToday: todayCompleted.c || 0,
+    driversOnShift: onShift.c || 0, revenueToday: revenueToday.s || 0,
+    revenueAll: revenueAll.s || 0, totalClients: totalClients.c || 0
   });
 });
 
