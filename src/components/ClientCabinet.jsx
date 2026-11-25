@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { API_URL, YANDEX_GEO_KEY } from '../config';
+import { API_URL } from '../config';
 import MapPicker from './MapPicker';
 import AccountSettings from './AccountSettings';
 
@@ -97,36 +97,13 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
     const latitude = Number(lat);
     const longitude = Number(lng);
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return '';
-
     try {
-      if (window.ymaps?.geocode) {
-        await new Promise((resolve) => window.ymaps.ready(resolve));
-        const result = await window.ymaps.geocode([latitude, longitude], { results: 1 });
-        const geoObject = result.geoObjects.get(0);
-        const metadata = geoObject?.properties?.get('metaDataProperty.GeocoderMetaData');
-        const address = metadata?.text || geoObject?.getAddressLine?.();
-        if (address) return address;
-      }
-    } catch (err) {
-      console.warn('Не удалось получить адрес через API карт', err);
-    }
-
-    if (!YANDEX_GEO_KEY) return '';
-    try {
-      const query = new URLSearchParams({
-        apikey: YANDEX_GEO_KEY,
-        geocode: `${longitude},${latitude}`,
-        sco: 'longlat',
-        format: 'json',
-        results: '1',
-        lang: 'ru_RU',
-      });
-      const res = await fetch(`https://geocode-maps.yandex.ru/v1/?${query}`);
-      if (!res.ok) return '';
+      const res = await authFetch(`/api/geocode/reverse?lat=${latitude}&lng=${longitude}`);
       const data = await res.json();
-      return data.response?.GeoObjectCollection?.featureMember?.[0]?.GeoObject?.metaDataProperty?.GeocoderMetaData?.text || '';
-    } catch {
-      return '';
+      if (!res.ok) throw new Error(data.error || 'Не удалось определить адрес');
+      return data.address || '';
+    } catch (err) {
+      throw new Error(err.message || 'Не удалось определить адрес');
     }
   };
 
@@ -134,14 +111,22 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
     setError('');
     if (showMap === 'from') {
       setCoords(selected);
-      const addr = await reverseGeocode(selected.lat, selected.lng);
-      if (addr) setAddress(addr);
-      else setError('Не удалось определить полный адрес по точке. Введите адрес вручную.');
+      try {
+        const addr = await reverseGeocode(selected.lat, selected.lng);
+        if (!addr) throw new Error('Яндекс не вернул адрес для выбранной точки');
+        setAddress(addr);
+      } catch (err) {
+        setError(err.message || 'Не удалось определить полный адрес по точке. Введите адрес вручную.');
+      }
     } else if (showMap === 'to') {
       setCoordsTo(selected);
-      const addr = await reverseGeocode(selected.lat, selected.lng);
-      if (addr) setAddressTo(addr);
-      else setError('Не удалось определить полный адрес по точке. Введите адрес вручную.');
+      try {
+        const addr = await reverseGeocode(selected.lat, selected.lng);
+        if (!addr) throw new Error('Яндекс не вернул адрес для выбранной точки');
+        setAddressTo(addr);
+      } catch (err) {
+        setError(err.message || 'Не удалось определить полный адрес по точке. Введите адрес вручную.');
+      }
     }
     setShowMap(null);
   };
