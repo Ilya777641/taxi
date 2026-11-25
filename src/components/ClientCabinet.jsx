@@ -101,10 +101,10 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
     try {
       if (window.ymaps?.geocode) {
         await new Promise((resolve) => window.ymaps.ready(resolve));
-        const result = await new Promise((resolve, reject) => {
-          window.ymaps.geocode([latitude, longitude], { results: 1 }).then(resolve, reject);
-        });
-        const address = result.geoObjects.get(0)?.getAddressLine();
+        const result = await window.ymaps.geocode([latitude, longitude], { results: 1 });
+        const geoObject = result.geoObjects.get(0);
+        const metadata = geoObject?.properties?.get('metaDataProperty.GeocoderMetaData');
+        const address = metadata?.text || geoObject?.getAddressLine?.();
         if (address) return address;
       }
     } catch (err) {
@@ -116,11 +116,12 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
       const query = new URLSearchParams({
         apikey: YANDEX_GEO_KEY,
         geocode: `${longitude},${latitude}`,
+        sco: 'longlat',
         format: 'json',
         results: '1',
         lang: 'ru_RU',
       });
-      const res = await fetch(`https://geocode-maps.yandex.ru/1.x/?${query}`);
+      const res = await fetch(`https://geocode-maps.yandex.ru/v1/?${query}`);
       if (!res.ok) return '';
       const data = await res.json();
       return data.response?.GeoObjectCollection?.featureMember?.[0]?.GeoObject?.metaDataProperty?.GeocoderMetaData?.text || '';
@@ -130,14 +131,17 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
   };
 
   const handleMapSelect = async (selected) => {
+    setError('');
     if (showMap === 'from') {
       setCoords(selected);
       const addr = await reverseGeocode(selected.lat, selected.lng);
       if (addr) setAddress(addr);
+      else setError('Не удалось определить полный адрес по точке. Введите адрес вручную.');
     } else if (showMap === 'to') {
       setCoordsTo(selected);
       const addr = await reverseGeocode(selected.lat, selected.lng);
       if (addr) setAddressTo(addr);
+      else setError('Не удалось определить полный адрес по точке. Введите адрес вручную.');
     }
     setShowMap(null);
   };
