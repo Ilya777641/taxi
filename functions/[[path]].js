@@ -348,23 +348,18 @@ app.post('/api/orders', authRequired, async (c) => {
       priceStatus = 'agreed'; // Цена известна сразу
     }
 
-    // Ищем водителя
-    const nextDriver = await c.env.DB.prepare(`
-      SELECT id FROM taxi_users 
-      WHERE role = 'driver' AND is_on_shift = 1 AND status = 'active'
-        AND id NOT IN (SELECT driver_id FROM taxi_orders WHERE status IN ('accepted', 'on_way', 'waiting') AND driver_id IS NOT NULL)
-      ORDER BY queue_position ASC, last_order_at ASC LIMIT 1
-    `).first();
-    const assignedTo = nextDriver ? nextDriver.id : null;
-
     const result = await c.env.DB.prepare(
-      `INSERT INTO taxi_orders (client_id, order_kind, order_type, address, address_to, delivery_item, delivery_from, price, status, comment, scheduled_at, assigned_to, price_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?) RETURNING *`
-    ).bind(c.get('userId'), order_kind || 'taxi', priceInfo.type, address || null, address_to.trim(), delivery_item || null, delivery_from || null, finalPrice, comment || null, scheduled_at || null, assignedTo, priceStatus).first();
+      `INSERT INTO taxi_orders (client_id, order_kind, order_type, address, address_to, delivery_item, delivery_from, price, status, comment, scheduled_at, assigned_to, price_status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, NULL, ?) RETURNING *`
+    ).bind(c.get('userId'), order_kind || 'taxi', priceInfo.type, address || null, address_to.trim(), delivery_item || null, delivery_from || null, finalPrice, comment || null, scheduled_at || null, priceStatus).first();
 
-    if (assignedTo) {
+    const onShiftDrivers = await c.env.DB.prepare(
+      `SELECT id FROM taxi_users WHERE role = 'driver' AND is_on_shift = 1 AND status = 'active'`
+    ).all();
+    const driverIds = (onShiftDrivers.results || []).map((driver) => driver.id);
+    if (driverIds.length > 0) {
       const timeText = scheduled_at ? `[⏰ Предзаказ] ` : '';
       const priceText = finalPrice ? `${finalPrice} ₽` : 'Таксометр (уточните)';
-      await sendPush(c.env, [assignedTo], '🚖 Новый заказ!', `${timeText}${address || delivery_from} → ${address_to} (${priceText})`);
+      await sendPush(c.env, driverIds, '🚖 Новый заказ!', `${timeText}${address || delivery_from} → ${address_to} (${priceText})`);
     }
 
     return c.json(result);
@@ -391,7 +386,7 @@ app.post('/api/orders/:id/confirm-price', authRequired, async (c) => {
   if (c.get('role') !== 'client') return c.json({ error: 'Только клиенты' }, 403);
   const orderId = c.req.param('id');
   const { agreed } = await c.req.json();
-  const order = await c.env.DB.prepare('SELECT driver_id, proposed_price FROM taxi_orders WHERE id = ? AND client_id = ? AND price_status = ?').bind(orderId, c.get('userId'), 'offered').first();
+  const order = await c.env.DB.prepare('SELECT driver_id, proposed_price FROM taxi_orders WHERE id = ? AND client_id = ? AND price_status = ? AND proposed_price IS NOT NULL').bind(orderId, c.get('userId'), 'offered').first();
   if (!order) return c.json({ error: 'Нет предложения по цене' }, 404);
 
   if (agreed) {
@@ -446,25 +441,14 @@ app.post('/api/driver/shift', authRequired, async (c) => {
   if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
   const { is_on_shift } = await c.req.json();
   const shiftVal = is_on_shift ? 1 : 0;
-  const driver = await c.env.DB.prepare('SELECT is_on_shift, queue_position FROM taxi_users WHERE id = ?').bind(c.get('userId')).first();
-  if (driver.is_on_shift === shiftVal) return c.json({ success: true, is_on_shift: shiftVal, queue_position: driver.queue_position });
-
-  let queuePos = 0;
-  if (shiftVal === 1) {
-    const max = await c.env.DB.prepare('SELECT COALESCE(MAX(queue_position), 0) AS max_pos FROM taxi_users WHERE role = ? AND is_on_shift = 1').bind('driver').first();
-    queuePos = (max.max_pos || 0) + 1;
-    await c.env.DB.prepare('UPDATE taxi_users SET is_on_shift = ?, queue_position = ? WHERE id = ?').bind(1, queuePos, c.get('userId')).run();
-  } else {
-    await c.env.DB.prepare('UPDATE taxi_users SET is_on_shift = 0, queue_position = 0 WHERE id = ?').bind(c.get('userId')).run();
-    const remainingDrivers = await c.env.DB.prepare(`SELECT id FROM taxi_users WHERE role = 'driver' AND is_on_shift = 1 ORDER BY queue_position ASC, id ASC`).all();
-    let newPos = 1;
-    for (const d of (remainingDrivers.results || [])) {
-      await c.env.DB.prepare('UPDATE taxi_users SET queue_position = ? WHERE id = ?').bind(newPos, d.id).run();
-      newPos++;
-    }
+  if (!shiftVal) {
+    await c.env.DB.prepare(
+      `UPDATE taxi_orders SET assigned_to = NULL, proposed_price = NULL
+       WHERE assigned_to = ? AND status = 'pending' AND driver_id IS NULL`
+    ).bind(c.get('userId')).run();
   }
-  const updated = await c.env.DB.prepare('SELECT is_on_shift, queue_position FROM taxi_users WHERE id = ?').bind(c.get('userId')).first();
-  return c.json({ success: true, is_on_shift: updated.is_on_shift, queue_position: updated.queue_position });
+  await c.env.DB.prepare('UPDATE taxi_users SET is_on_shift = ? WHERE id = ?').bind(shiftVal, c.get('userId')).run();
+  return c.json({ success: true, is_on_shift: shiftVal });
 });
 
 app.post('/api/driver/delivery', authRequired, async (c) => {
@@ -482,36 +466,24 @@ app.get('/api/driver/my-order', authRequired, async (c) => {
   ).bind(c.get('userId')).first();
   if (order) return c.json({ order, type: 'active' });
 
-  const expiredOrder = await c.env.DB.prepare(
-    `SELECT id FROM taxi_orders WHERE status = 'pending' AND assigned_to IS NOT NULL AND created_at <= datetime('now', '-180 seconds') LIMIT 1`
-  ).first();
-  if (expiredOrder) {
-    const declined = await c.env.DB.prepare('SELECT declined_by FROM taxi_orders WHERE id = ?').bind(expiredOrder.id).first();
-    const declinedArray = JSON.parse(declined?.declined_by || '[]');
-    const nextDriver = await c.env.DB.prepare(`
-      SELECT id FROM taxi_users WHERE role = 'driver' AND is_on_shift = 1 AND status = 'active'
-        AND id NOT IN (SELECT value FROM json_each(?))
-        AND id NOT IN (SELECT driver_id FROM taxi_orders WHERE status IN ('accepted', 'on_way', 'waiting') AND driver_id IS NOT NULL)
-      ORDER BY queue_position ASC, last_order_at ASC LIMIT 1
-    `).bind(JSON.stringify(declinedArray)).first();
-    if (nextDriver) await c.env.DB.prepare('UPDATE taxi_orders SET assigned_to = ? WHERE id = ?').bind(nextDriver.id, expiredOrder.id).run();
-    else await c.env.DB.prepare('UPDATE taxi_orders SET assigned_to = NULL WHERE id = ?').bind(expiredOrder.id).run();
-  }
-
   order = await c.env.DB.prepare(
     `SELECT o.*, u.username AS client_name, u.phone AS client_phone FROM taxi_orders o JOIN taxi_users u ON u.id = o.client_id WHERE o.assigned_to = ? AND o.status = 'pending' ORDER BY o.created_at ASC LIMIT 1`
   ).bind(c.get('userId')).first();
   if (order) return c.json({ order, type: 'assigned' });
 
-  const me = await c.env.DB.prepare('SELECT is_on_shift FROM taxi_users WHERE id = ?').bind(c.get('userId')).first();
-  if (me?.is_on_shift) {
-    const freeOrder = await c.env.DB.prepare(
-      `SELECT o.*, u.username AS client_name, u.phone AS client_phone FROM taxi_orders o JOIN taxi_users u ON u.id = o.client_id WHERE o.status = 'pending' AND o.assigned_to IS NULL ORDER BY o.created_at ASC LIMIT 1`
-    ).first();
-    if (freeOrder) {
-      await c.env.DB.prepare('UPDATE taxi_orders SET assigned_to = ? WHERE id = ?').bind(c.get('userId'), freeOrder.id).run();
-      return c.json({ order: { ...freeOrder, assigned_to: c.get('userId') }, type: 'assigned' });
-    }
+  const me = await c.env.DB.prepare('SELECT is_on_shift, status FROM taxi_users WHERE id = ?').bind(c.get('userId')).first();
+  if (me?.is_on_shift && me.status === 'active') {
+    const broadcastOrder = await c.env.DB.prepare(
+      `SELECT o.*, u.username AS client_name, u.phone AS client_phone
+       FROM taxi_orders o JOIN taxi_users u ON u.id = o.client_id
+       WHERE o.status = 'pending' AND o.driver_id IS NULL AND o.assigned_to IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM json_each(COALESCE(o.declined_by, '[]')) declined
+           WHERE CAST(declined.value AS TEXT) = CAST(? AS TEXT)
+         )
+       ORDER BY o.created_at ASC LIMIT 1`
+    ).bind(c.get('userId')).first();
+    if (broadcastOrder) return c.json({ order: broadcastOrder, type: 'assigned' });
   }
   return c.json({ order: null, type: 'idle' });
 });
@@ -556,10 +528,20 @@ app.post('/api/orders/:id/offer-price', authRequired, async (c) => {
   const orderId = c.req.param('id');
   const { price } = await c.req.json();
   if (!price || price <= 0) return c.json({ error: 'Введите корректную цену' }, 400);
+  const driverId = c.get('userId');
   const result = await c.env.DB.prepare(
-    `UPDATE taxi_orders SET proposed_price = ?, price_status = 'offered' WHERE id = ? AND assigned_to = ? AND status = 'pending' RETURNING *`
-  ).bind(price, orderId, c.get('userId')).first();
-  if (!result) return c.json({ error: 'Заказ не найден или не назначен вам' }, 404);
+    `UPDATE taxi_orders
+     SET proposed_price = ?, price_status = 'offered', assigned_to = ?
+     WHERE id = ? AND status = 'pending' AND driver_id IS NULL
+       AND (assigned_to IS NULL OR assigned_to = ?)
+       AND NOT EXISTS (
+         SELECT 1 FROM json_each(COALESCE(declined_by, '[]')) declined
+         WHERE CAST(declined.value AS TEXT) = CAST(? AS TEXT)
+       )
+       AND EXISTS (SELECT 1 FROM taxi_users WHERE id = ? AND role = 'driver' AND status = 'active' AND is_on_shift = 1)
+     RETURNING *`
+  ).bind(price, driverId, orderId, driverId, driverId, driverId).first();
+  if (!result) return c.json({ error: 'Заказ уже занят или вы не на смене' }, 409);
 
   try {
     await sendPush(c.env, [result.client_id], '💰 Водитель предложил цену', `${price} ₽. Согласны?`);
@@ -572,12 +554,19 @@ app.post('/api/orders/:id/accept', authRequired, async (c) => {
   const orderId = c.req.param('id');
   const driverId = c.get('userId');
   const result = await c.env.DB.prepare(
-    `UPDATE taxi_orders SET driver_id = ?, status = 'accepted', accepted_at = datetime('now'), assigned_to = NULL WHERE id = ? AND status = 'pending' AND driver_id IS NULL RETURNING *`
-  ).bind(driverId, orderId).first();
-  if (!result) return c.json({ error: 'Заказ уже занят' }, 409);
+    `UPDATE taxi_orders
+     SET driver_id = ?, status = 'accepted', accepted_at = datetime('now'), assigned_to = NULL
+     WHERE id = ? AND status = 'pending' AND driver_id IS NULL
+       AND (assigned_to IS NULL OR assigned_to = ?)
+       AND NOT EXISTS (
+         SELECT 1 FROM json_each(COALESCE(declined_by, '[]')) declined
+         WHERE CAST(declined.value AS TEXT) = CAST(? AS TEXT)
+       )
+       AND EXISTS (SELECT 1 FROM taxi_users WHERE id = ? AND role = 'driver' AND status = 'active' AND is_on_shift = 1)
+     RETURNING *`
+  ).bind(driverId, orderId, driverId, driverId, driverId).first();
+  if (!result) return c.json({ error: 'Заказ уже принят или вы не на смене' }, 409);
   try { await sendPush(c.env, [result.client_id], '🚖 Водитель найден!', 'Ваш заказ принят.'); } catch (err) {}
-  const max = await c.env.DB.prepare('SELECT COALESCE(MAX(queue_position), 0) AS max_pos FROM taxi_users WHERE role = ? AND is_on_shift = 1').bind('driver').first();
-  await c.env.DB.prepare('UPDATE taxi_users SET queue_position = ?, last_order_at = datetime("now") WHERE id = ?').bind((max.max_pos || 0) + 1, driverId).run();
   return c.json(result);
 });
 
@@ -585,26 +574,20 @@ app.post('/api/orders/:id/decline', authRequired, async (c) => {
   if (c.get('role') !== 'driver') return c.json({ error: 'Только водители' }, 403);
   const orderId = c.req.param('id');
   const driverId = c.get('userId');
-  const order = await c.env.DB.prepare('SELECT declined_by, assigned_to FROM taxi_orders WHERE id = ?').bind(orderId).first();
+  const order = await c.env.DB.prepare('SELECT declined_by, assigned_to, status, driver_id FROM taxi_orders WHERE id = ?').bind(orderId).first();
   if (!order) return c.json({ error: 'Не найден' }, 404);
+  if (order.status !== 'pending' || order.driver_id || (order.assigned_to && order.assigned_to != c.get('userId'))) {
+    return c.json({ error: 'Заказ уже занят' }, 409);
+  }
   const declined = JSON.parse(order.declined_by || '[]');
   if (!declined.includes(driverId)) declined.push(driverId);
-  const nextDriver = await c.env.DB.prepare(`
-    SELECT id FROM taxi_users WHERE role = 'driver' AND is_on_shift = 1 AND status = 'active'
-      AND id NOT IN (SELECT value FROM json_each(?))
-      AND id NOT IN (SELECT driver_id FROM taxi_orders WHERE status IN ('accepted', 'on_way', 'waiting') AND driver_id IS NOT NULL)
-    ORDER BY queue_position ASC, last_order_at ASC LIMIT 1
-  `).bind(JSON.stringify(declined)).first();
-  const newAssignedTo = nextDriver ? nextDriver.id : null;
-  await c.env.DB.prepare('UPDATE taxi_orders SET declined_by = ?, assigned_to = ? WHERE id = ?').bind(JSON.stringify(declined), newAssignedTo, orderId).run();
-  if (newAssignedTo) {
-    const orderData = await c.env.DB.prepare('SELECT address, address_to, delivery_from, price, scheduled_at FROM taxi_orders WHERE id = ?').bind(orderId).first();
-    const timeText = orderData.scheduled_at ? `[⏰ Предзаказ] ` : '';
-    await sendPush(c.env, [newAssignedTo], '🚖 Новый заказ!', `${timeText}${orderData.address || orderData.delivery_from} → ${orderData.address_to} (${orderData.price || 'Таксометр'})`);
-  }
-  const max = await c.env.DB.prepare('SELECT COALESCE(MAX(queue_position), 0) AS max_pos FROM taxi_users WHERE role = ? AND is_on_shift = 1').bind('driver').first();
-  await c.env.DB.prepare('UPDATE taxi_users SET queue_position = ? WHERE id = ?').bind((max.max_pos || 0) + 1, driverId).run();
-  return c.json({ success: true, assigned_to: newAssignedTo });
+  const updated = await c.env.DB.prepare(
+    `UPDATE taxi_orders SET declined_by = ?, assigned_to = NULL, proposed_price = NULL
+     WHERE id = ? AND status = 'pending' AND driver_id IS NULL AND (assigned_to IS NULL OR assigned_to = ?)
+     RETURNING id`
+  ).bind(JSON.stringify(declined), orderId, driverId).first();
+  if (!updated) return c.json({ error: 'Заказ уже принят' }, 409);
+  return c.json({ success: true });
 });
 
 app.post('/api/orders/:id/status', authRequired, async (c) => {
@@ -670,7 +653,7 @@ app.get('/api/admin/drivers/pending', authRequired, adminRequired, async (c) => 
 });
 
 app.get('/api/admin/drivers', authRequired, adminRequired, async (c) => {
-  const drivers = await c.env.DB.prepare(`SELECT id, username, phone, car_model, car_number, status, is_on_shift, queue_position, accepts_delivery, rating, created_at FROM taxi_users WHERE role = 'driver' ORDER BY queue_position ASC`).all();
+  const drivers = await c.env.DB.prepare(`SELECT id, username, phone, car_model, car_number, status, is_on_shift, accepts_delivery, rating, created_at FROM taxi_users WHERE role = 'driver' ORDER BY is_on_shift DESC, username ASC`).all();
   return c.json(drivers.results || []);
 });
 
@@ -681,7 +664,12 @@ app.post('/api/admin/drivers/:id/approve', authRequired, adminRequired, async (c
 });
 
 app.post('/api/admin/drivers/:id/block', authRequired, adminRequired, async (c) => {
-  const result = await c.env.DB.prepare(`UPDATE taxi_users SET status = 'blocked', is_on_shift = 0 WHERE id = ? AND role = 'driver' RETURNING id, username, status`).bind(c.req.param('id')).first();
+  const driverId = c.req.param('id');
+  await c.env.DB.prepare(
+    `UPDATE taxi_orders SET assigned_to = NULL, proposed_price = NULL
+     WHERE assigned_to = ? AND status = 'pending' AND driver_id IS NULL`
+  ).bind(driverId).run();
+  const result = await c.env.DB.prepare(`UPDATE taxi_users SET status = 'blocked', is_on_shift = 0 WHERE id = ? AND role = 'driver' RETURNING id, username, status`).bind(driverId).first();
   if (!result) return c.json({ error: 'Не найден' }, 404);
   return c.json(result);
 });
@@ -692,13 +680,24 @@ app.post('/api/admin/drivers/:id/unblock', authRequired, adminRequired, async (c
   return c.json(result);
 });
 
-app.delete('/api/admin/drivers/:id', authRequired, adminRequired, async (c) => {
-  await c.env.DB.prepare('DELETE FROM taxi_users WHERE id = ? AND role = ?').bind(c.req.param('id'), 'driver').run();
-  return c.json({ success: true });
+app.post('/api/admin/drivers/:id/off-shift', authRequired, adminRequired, async (c) => {
+  const driverId = c.req.param('id');
+  await c.env.DB.prepare(
+    `UPDATE taxi_orders SET assigned_to = NULL, proposed_price = NULL
+     WHERE assigned_to = ? AND status = 'pending' AND driver_id IS NULL`
+  ).bind(driverId).run();
+  const result = await c.env.DB.prepare(`UPDATE taxi_users SET is_on_shift = 0 WHERE id = ? AND role = 'driver' RETURNING id, username, is_on_shift`).bind(driverId).first();
+  if (!result) return c.json({ error: 'Не найден' }, 404);
+  return c.json(result);
 });
 
-app.post('/api/admin/drivers/reset-queue', authRequired, adminRequired, async (c) => {
-  await c.env.DB.prepare(`UPDATE taxi_users SET queue_position = 0 WHERE role = 'driver'`).run();
+app.delete('/api/admin/drivers/:id', authRequired, adminRequired, async (c) => {
+  const driverId = c.req.param('id');
+  await c.env.DB.prepare(
+    `UPDATE taxi_orders SET assigned_to = NULL, proposed_price = NULL
+     WHERE assigned_to = ? AND status = 'pending' AND driver_id IS NULL`
+  ).bind(driverId).run();
+  await c.env.DB.prepare('DELETE FROM taxi_users WHERE id = ? AND role = ?').bind(driverId, 'driver').run();
   return c.json({ success: true });
 });
 
