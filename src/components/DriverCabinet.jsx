@@ -14,6 +14,8 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
   const [tab, setTab] = useState('work');
   const [history, setHistory] = useState([]);
   const [stats, setStats] = useState(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState('');
   
   const [showNavChoice, setShowNavChoice] = useState(false);
   const [geocoding, setGeocoding] = useState(false);
@@ -31,23 +33,35 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
   const poll = async () => {
     try {
       const meRes = await authFetch('/api/auth/me');
+      if (!meRes.ok) throw new Error('Не удалось загрузить профиль');
       setMe(await meRes.json());
 
       if (tab === 'work') {
         const orderRes = await authFetch('/api/driver/my-order');
+        if (!orderRes.ok) throw new Error('Не удалось загрузить заказ');
         const orderData = await orderRes.json();
         setCurrentOrder(orderData.order);
         setOrderType(orderData.type);
       } else if (tab === 'history') {
         const histRes = await authFetch('/api/driver/my-history');
+        if (!histRes.ok) throw new Error('Не удалось загрузить заработок');
         const histData = await histRes.json();
         setHistory(histData.orders || []);
-        setStats(histData.stats || null);
+        setStats(histData.stats || { today: 0, week: 0, month: 0, all_time: 0 });
+        setHistoryError('');
       }
-    } catch (err) {}
+    } catch (err) {
+      if (tab === 'history') setHistoryError('Не удалось загрузить заработок. Проверьте соединение и попробуйте ещё раз.');
+    } finally {
+      if (tab === 'history') setHistoryLoading(false);
+    }
   };
 
   useEffect(() => {
+    if (tab === 'history') {
+      setHistoryLoading(true);
+      setHistoryError('');
+    }
     const saveOneSignalId = async () => {
       for (let i = 0; i < 20; i++) {
         if (window.OneSignal && window.OneSignal.getUserId) {
@@ -247,7 +261,6 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
               <button className={`shift-btn ${me.accepts_delivery ? 'on' : 'off'}`} onClick={toggleDelivery}>
                 {me.accepts_delivery ? '📦 Доставка вкл' : '📦 Доставка выкл'}
               </button>
-              <div className="queue-info">Очередь: <strong>#{me.queue_position}</strong></div>
             </div>
 
             <div className="driver-order">
@@ -393,35 +406,50 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
           </>
         )}
 
-        {tab === 'history' && stats && (
+        {tab === 'history' && (
           <div className="history-section">
             <h3>Мой заработок</h3>
-            <div className="stats-grid">
-              <div className="stat-card"><div>Сегодня</div><strong>{stats.today || 0} ₽</strong></div>
-              <div className="stat-card"><div>Неделя</div><strong>{stats.week || 0} ₽</strong></div>
-              <div className="stat-card"><div>Месяц</div><strong>{stats.month || 0} ₽</strong></div>
-              <div className="stat-card"><div>Все время</div><strong>{stats.all_time || 0} ₽</strong></div>
-            </div>
+            {historyLoading && !stats && <div className="empty-state">Загрузка заработка…</div>}
+            {historyError && !stats && (
+              <div className="empty-state">
+                <p>{historyError}</p>
+                <button className="btn-secondary" onClick={() => { setHistoryLoading(true); poll(); }}>Повторить</button>
+              </div>
+            )}
+            {!historyLoading && !historyError && !stats && <div className="empty-state">Нет данных о заработке</div>}
 
-            <h3 style={{ marginTop: '20px' }}>Последние поездки</h3>
-            <div className="admin-list">
-              {history.map((o) => (
-                <div key={o.id} className="admin-item" style={{ cursor: 'default' }}>
-                  <div className="item-row"><span>Заказ #{o.id}</span><span>{o.price} ₽</span></div>
-                  <div className="item-meta">{new Date(o.completed_at).toLocaleDateString()} • {o.address} → {o.address_to}</div>
-                  {o.client_rating && <div className="item-meta" style={{color: 'var(--yellow)'}}>Оценка: {'★'.repeat(o.client_rating)}{'☆'.repeat(5 - o.client_rating)}</div>}
+            {stats && (
+              <>
+                <div className="stats-grid">
+                  <div className="stat-card"><div>Сегодня</div><strong>{stats.today || 0} ₽</strong></div>
+                  <div className="stat-card"><div>Неделя</div><strong>{stats.week || 0} ₽</strong></div>
+                  <div className="stat-card"><div>Месяц</div><strong>{stats.month || 0} ₽</strong></div>
+                  <div className="stat-card"><div>Все время</div><strong>{stats.all_time || 0} ₽</strong></div>
                 </div>
-              ))}
-            </div>
 
-            <div style={{ marginTop: '30px', padding: '20px', background: 'var(--black-card)', border: '1px solid var(--border)', borderRadius: '15px', textAlign: 'center' }}>
-              <h3 style={{ marginBottom: '10px' }}>Завершение смены</h3>
-              <p style={{ fontSize: '14px', color: 'var(--text-soft)', marginBottom: '15px' }}>Отправьте отчет администратору о проделанной работе</p>
-              <button className="btn-primary" onClick={handleSendReport} disabled={reportLoading || !me.is_on_shift} style={{ width: '100%', padding: '15px', fontSize: '16px' }}>
-                {reportLoading ? 'Отправка...' : '📊 Отправить отчет'}
-              </button>
-              {!me.is_on_shift && <p style={{ fontSize: '12px', color: '#ff6b6b', marginTop: '10px' }}>Вы должны быть на смене</p>}
-            </div>
+                <h3 style={{ marginTop: '20px' }}>Последние поездки</h3>
+                {history.length === 0 ? <div className="empty-state">Завершённых поездок пока нет</div> : (
+                  <div className="admin-list">
+                    {history.map((o) => (
+                      <div key={o.id} className="admin-item" style={{ cursor: 'default' }}>
+                        <div className="item-row"><span>Заказ #{o.id}</span><span>{o.price} ₽</span></div>
+                        <div className="item-meta">{new Date(o.completed_at).toLocaleDateString('ru-RU')} • {o.address} → {o.address_to}</div>
+                        {o.client_rating && <div className="item-meta" style={{color: 'var(--yellow)'}}>Оценка: {'★'.repeat(o.client_rating)}{'☆'.repeat(5 - o.client_rating)}</div>}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <div style={{ marginTop: '30px', padding: '20px', background: 'var(--black-card)', border: '1px solid var(--border)', borderRadius: '15px', textAlign: 'center' }}>
+                  <h3 style={{ marginBottom: '10px' }}>Завершение смены</h3>
+                  <p style={{ fontSize: '14px', color: 'var(--text-soft)', marginBottom: '15px' }}>Отправьте отчет администратору о проделанной работе</p>
+                  <button className="btn-primary" onClick={handleSendReport} disabled={reportLoading || !me?.is_on_shift} style={{ width: '100%', padding: '15px', fontSize: '16px' }}>
+                    {reportLoading ? 'Отправка...' : '📊 Отправить отчет'}
+                  </button>
+                  {!me?.is_on_shift && <p style={{ fontSize: '12px', color: '#ff6b6b', marginTop: '10px' }}>Вы должны быть на смене</p>}
+                </div>
+              </>
+            )}
           </div>
         )}
       </main>

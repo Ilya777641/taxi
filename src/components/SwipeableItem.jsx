@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
 
-function SwipeableItem({ children, onDelete, onBlock, customAction, itemType }) {
+function SwipeableItem({ children, onDelete, onBlock, customAction, actions, itemType }) {
   const [offset, setOffset] = useState(0);
   const startX = useRef(null);
   const startY = useRef(null);
@@ -9,9 +9,10 @@ function SwipeableItem({ children, onDelete, onBlock, customAction, itemType }) 
   
   const ACTION_WIDTH = 80;
   
-  // Считаем максимальный сдвиг: удаление (80) + кастомная кнопка или блок (80)
-  const hasSecondAction = customAction || onBlock;
-  const MAX_OFFSET = onDelete && hasSecondAction ? ACTION_WIDTH * 2 : ACTION_WIDTH;
+  const swipeActions = actions || (customAction ? [customAction] : onBlock ? [{
+    text: 'Блок', color: '#f57c00', icon: '🚫', action: onBlock,
+  }] : []);
+  const MAX_OFFSET = ACTION_WIDTH * (swipeActions.length + (onDelete ? 1 : 0));
 
   const handleTouchStart = (e) => {
     startX.current = e.touches[0].clientX;
@@ -48,22 +49,17 @@ function SwipeableItem({ children, onDelete, onBlock, customAction, itemType }) 
   return (
     <div className="swipe-container" ref={containerRef}>
       <div className="swipe-actions">
-        {/* Кнопка действия (Блок / Разблок) */}
-        {customAction ? (
-          <button 
-            className="swipe-btn" 
-            style={{ backgroundColor: customAction.color }} 
-            onClick={() => { closeSwipe(); customAction.action(); }}
+        {swipeActions.map((action, index) => (
+          <button
+            key={`${action.text}-${index}`}
+            className="swipe-btn"
+            style={{ backgroundColor: action.color || '#f57c00' }}
+            onClick={() => { closeSwipe(); action.action(); }}
           >
-            <span>{customAction.icon || '🚫'}</span>
-            {customAction.text}
+            <span>{action.icon || '🚫'}</span>
+            {action.text}
           </button>
-        ) : onBlock ? (
-          <button className="swipe-btn block" onClick={() => { closeSwipe(); onBlock(); }}>
-            <span>🚫</span>
-            Блок
-          </button>
-        ) : null}
+        ))}
 
         {/* Кнопка удаления */}
         {onDelete && (

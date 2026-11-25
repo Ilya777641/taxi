@@ -4,6 +4,15 @@ import SwipeableItem from './SwipeableItem';
 
 const POLL_INTERVAL = 4000;
 
+const formatOrderDateTime = (value) => {
+  if (!value) return 'Дата неизвестна';
+  const normalized = value.includes('T') ? value : `${value.replace(' ', 'T')}Z`;
+  const date = new Date(normalized);
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleString('ru-RU', { dateStyle: 'short', timeStyle: 'short' });
+};
+
 function AdminCabinet({ user, token, authFetch, onLogout }) {
   const [orders, setOrders] = useState([]);
   const [drivers, setDrivers] = useState([]);
@@ -71,6 +80,11 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
 
   const unblockDriver = async (id) => {
     await authFetch(`/api/admin/drivers/${id}/unblock`, { method: 'POST' });
+    poll();
+  };
+
+  const offShiftDriver = async (id) => {
+    await authFetch(`/api/admin/drivers/${id}/off-shift`, { method: 'POST' });
     poll();
   };
 
@@ -234,6 +248,7 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
               <SwipeableItem key={o.id} onDelete={() => deleteOrder(o.id)}>
                 <div onClick={() => setSelectedOrder(o)}>
                   <div className="item-row"><span className="item-kind">{o.order_kind === 'taxi' ? '🚖' : '📦'} #{o.id}</span><span className={`item-status status-${o.status}`}>{getStatusLabel(o.status)}</span></div>
+                  <div className="item-meta">Создан: {formatOrderDateTime(o.created_at)}</div>
                   <div className="item-meta" style={{ color: 'var(--text)' }}>{o.address || o.delivery_from} → {o.address_to}</div>
                   <div className="item-meta">{o.client_name && `Клиент: ${o.client_name}`}{o.driver_name && ` • Водитель: ${o.driver_name}`}</div>
                 </div>
@@ -247,6 +262,7 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
             <button className="btn-back" onClick={() => setSelectedOrder(null)}>← Назад</button>
             <h3>Заказ #{selectedOrder.id}</h3>
             <div className="order-info">
+              <div className="order-row"><span>Создан:</span> {formatOrderDateTime(selectedOrder.created_at)}</div>
               <div className="order-row"><span>Откуда:</span> {selectedOrder.address}</div>
               <div className="order-row"><span>Куда:</span> {selectedOrder.address_to}</div>
               <div className="order-row"><span>Клиент:</span> {selectedOrder.client_name}</div>
@@ -337,20 +353,24 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
         {tab === 'drivers' && (
           <div className="admin-list">
             {drivers.map((d) => {
-              const swipeAction = d.status === 'blocked' 
+              const swipeActions = [];
+              if (d.is_on_shift && d.status === 'active') {
+                swipeActions.push({ text: 'Со смены', icon: '⏸️', color: '#455a64', action: () => offShiftDriver(d.id) });
+              }
+              swipeActions.push(d.status === 'blocked'
                 ? { text: 'Разблок', color: 'var(--success)', action: () => unblockDriver(d.id) }
-                : { text: 'Блок', color: '#f57c00', action: () => blockDriver(d.id) };
+                : { text: 'Блок', color: '#f57c00', action: () => blockDriver(d.id) });
 
               return (
                 <SwipeableItem 
                   key={d.id} 
                   onDelete={() => deleteDriver(d.id)} 
-                  customAction={swipeAction}
+                  actions={swipeActions}
                 >
                   <div>
                     <div className="item-row">
                       <span className="item-kind">{d.is_on_shift ? '🟢' : '⚫'} {d.username}</span>
-                      <span className="item-status">#{d.queue_position}</span>
+                      <span className="item-status">{d.is_on_shift ? 'На линии' : 'Не на линии'}</span>
                     </div>
                     
                     <div style={{ display: 'flex', alignItems: 'center', gap: '5px', marginBottom: '5px' }}>

@@ -39,8 +39,6 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
   const [ratingValue, setRatingValue] = useState(0);
   const [ratingLoading, setRatingLoading] = useState(false);
 
-  const [timeLeft, setTimeLeft] = useState(180);
-
   const intervalRef = useRef(null);
   const msgIntervalRef = useRef(null);
   const onlineIntervalRef = useRef(null);
@@ -69,20 +67,6 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
     intervalRef.current = setInterval(poll, POLL_INTERVAL);
     return () => clearInterval(intervalRef.current);
   }, [tab, authFetch]);
-
-  useEffect(() => {
-    if (activeOrder && activeOrder.status === 'pending' && activeOrder.price_status !== 'offered') {
-      const created = new Date(activeOrder.created_at + 'Z').getTime();
-      const now = new Date().getTime();
-      const diff = Math.floor((now - created) / 1000);
-      const left = Math.max(0, 180 - diff);
-      setTimeLeft(left);
-      const timer = setInterval(() => setTimeLeft((prev) => (prev > 0 ? prev - 1 : 0)), 1000);
-      return () => clearInterval(timer);
-    } else {
-      setTimeLeft(180);
-    }
-  }, [activeOrder]);
 
   useEffect(() => {
     const fetchOnline = async () => {
@@ -266,11 +250,6 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
           <div className="active-order">
             <div className="order-status">
               {activeOrder.price_status === 'offered' && activeOrder.proposed_price ? '💰 Водитель предлагает цену' : getStatusLabel(activeOrder.status)}
-              {activeOrder.status === 'pending' && activeOrder.price_status !== 'offered' && timeLeft > 0 && (
-                <div style={{ fontSize: '12px', fontWeight: 'normal', marginTop: '5px', color: 'var(--text-soft)' }}>
-                  Переназначение через: {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
-                </div>
-              )}
             </div>
             
             {activeOrder.scheduled_at && (
