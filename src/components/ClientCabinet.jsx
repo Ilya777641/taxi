@@ -99,7 +99,15 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return '';
     try {
       const res = await authFetch(`/api/geocode/reverse?lat=${latitude}&lng=${longitude}`);
-      const data = await res.json();
+            const responseText = await res.text();
+      let data;
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        const contentType = res.headers.get('content-type') || 'не указан';
+        console.error('Reverse geocoder returned non-JSON', { status: res.status, contentType });
+        throw new Error(`Сервер адресов вернул не JSON (HTTP ${res.status}, ${contentType})`);
+      }
       if (!res.ok) throw new Error(data.error || 'Не удалось определить адрес');
       return data.address || '';
     } catch (err) {
