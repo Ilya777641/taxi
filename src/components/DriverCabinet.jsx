@@ -16,6 +16,7 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
   const [stats, setStats] = useState(null);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState('');
+  const [reportLoading, setReportLoading] = useState(false);
   
   const [showNavChoice, setShowNavChoice] = useState(false);
   const [geocoding, setGeocoding] = useState(false);
@@ -148,6 +149,21 @@ function DriverCabinet({ user, token, authFetch, onLogout }) {
       if (res.ok) await poll();
     } catch (err) {}
     setLoading(false);
+  };
+
+  const handleSendReport = async () => {
+    if (!me?.is_on_shift || reportLoading) return;
+    setReportLoading(true);
+    try {
+      const res = await authFetch('/api/driver/report', { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Не удалось отправить отчет');
+      window.alert('Отчет о смене отправлен администратору');
+    } catch (err) {
+      window.alert(err.message || 'Ошибка соединения при отправке отчета');
+    } finally {
+      setReportLoading(false);
+    }
   };
 
   const handleDriverCancel = async () => {
