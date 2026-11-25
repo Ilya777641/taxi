@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { handle } from 'hono/cloudflare-pages';
 
 const app = new Hono();
 
@@ -752,7 +753,6 @@ app.delete('/api/admin/admins/:id', authRequired, adminRequired, async (c) => {
   const count = await c.env.DB.prepare('SELECT COUNT(*) as cnt FROM taxi_users WHERE role = ?').bind('admin').first();
   if (count.cnt <= 1) return c.json({ error: 'Нельзя удалить последнего админа' }, 400);
   await c.env.DB.prepare('DELETE FROM taxi_users WHERE id = ? AND role = ?').bind(targetId, 'admin').run();
-  return c.json({ success: true });
-});
+  return c.json({ success: true });});
 
-export default app;
+export const onRequest = handle(app);
