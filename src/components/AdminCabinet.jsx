@@ -397,7 +397,7 @@ function AdminCabinet({ user, token, authFetch, onLogout }) {
               <h3 style={{ color: 'var(--yellow)', marginBottom: '10px' }}>Добавить админа</h3>
               <form onSubmit={handleAddAdmin} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 <input type="text" placeholder="Имя" value={newAdminName} onChange={(e) => setNewAdminName(e.target.value)} required />
-                <input type="text" placeholder="Пароль (4 цифры)" inputMode="numeric" maxLength={4} value={newAdminPass} onChange={(e) => setNewAdminPass(e.target.value.replace(/\D/g, '').slice(0, 4))} required />
+                <input type="password" placeholder="Пароль (4 цифры)" inputMode="numeric" maxLength={4} value={newAdminPass} onChange={(e) => setNewAdminPass(e.target.value.replace(/\D/g, '').slice(0, 4))} required />
                 <button type="submit" className="btn-primary" style={{ width: '100%' }}>Создать</button>
               </form>
             </div>

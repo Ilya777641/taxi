@@ -187,7 +187,7 @@ function AuthPage({ onLogin }) {
           <label className="auth-label">
             Пароль (4 цифры)
             <input
-              type="text"
+              type="password"
               inputMode="numeric"
               pattern="[0-9]*"
               value={password}

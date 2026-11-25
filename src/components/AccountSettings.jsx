@@ -235,11 +235,11 @@ function AccountSettings({ user, token, authFetch, onClose, onLogout, onUpdate }
             <h3>Смена пароля</h3>
             <form onSubmit={handleChangePassword}>
               <label>Старый пароль
-                <input type="text" inputMode="numeric" maxLength={4} value={oldPassword}
+                <input type="password" inputMode="numeric" maxLength={4} value={oldPassword}
                   onChange={(e) => setOldPassword(e.target.value.replace(/\D/g, '').slice(0, 4))} required />
               </label>
               <label>Новый пароль
-                <input type="text" inputMode="numeric" maxLength={4} value={newPassword}
+                <input type="password" inputMode="numeric" maxLength={4} value={newPassword}
                   onChange={(e) => setNewPassword(e.target.value.replace(/\D/g, '').slice(0, 4))} required />
               </label>
               <button type="submit" className="btn-primary" disabled={loading} style={{ width: '100%', marginTop: '10px' }}>
