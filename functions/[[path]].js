@@ -101,6 +101,43 @@ async function adminRequired(c, next) {
   await next();
 }
 
+app.get('/api/geocode/reverse', authRequired, async (c) => {
+  const lat = Number(c.req.query('lat'));
+  const lng = Number(c.req.query('lng'));
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
+    return c.json({ error: 'Некорректные координаты точки' }, 400);
+  }
+
+  const apiKey = c.env.VITE_YANDEX_GEO_KEY || c.env.YANDEX_GEO_KEY;
+  if (!apiKey) return c.json({ error: 'В Cloudflare Pages не настроен ключ Geocoder API' }, 503);
+
+  const query = new URLSearchParams({
+    apikey: apiKey,
+    geocode: `${lng},${lat}`,
+    sco: 'longlat',
+    lang: 'ru_RU',
+    format: 'json',
+    results: '1',
+  });
+
+  try {
+    const response = await fetch(`https://geocode-maps.yandex.ru/v1/?${query}`);
+    const data = await response.json();
+    if (!response.ok) {
+      console.error('Yandex geocoder returned status', response.status);
+      return c.json({ error: response.status === 403 ? 'Ключ Geocoder API отклонён Яндексом' : 'Яндекс не смог определить адрес' }, 502);
+    }
+
+    const feature = data.response?.GeoObjectCollection?.featureMember?.[0]?.GeoObject;
+    const address = feature?.metaDataProperty?.GeocoderMetaData?.text || feature?.name || '';
+    if (!address) return c.json({ error: 'Для этой точки Яндекс не нашёл адрес' }, 404);
+    return c.json({ address });
+  } catch (err) {
+    console.error('Yandex geocoder request failed', err);
+    return c.json({ error: 'Не удалось связаться с Яндексом для определения адреса' }, 502);
+  }
+});
+
 // ============================================================
 // ЦЕНЫ
 // ============================================================
