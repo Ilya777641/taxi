@@ -125,7 +125,10 @@ app.get('/api/geocode/reverse', authRequired, async (c) => {
     const data = await response.json();
     if (!response.ok) {
       console.error('Yandex geocoder returned status', response.status);
-      return c.json({ error: response.status === 403 ? 'Ключ Geocoder API отклонён Яндексом' : 'Яндекс не смог определить адрес' }, 502);
+              const error = response.status === 403
+          ? 'Яндекс отклонил ключ: проверьте, что пакет Geocoder API подключён и активирован для этого ключа'
+          : 'Яндекс не смог определить адрес';
+        return c.json({ error }, 424);
     }
 
     const feature = data.response?.GeoObjectCollection?.featureMember?.[0]?.GeoObject;
