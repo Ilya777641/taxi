@@ -94,11 +94,39 @@ function ClientCabinet({ user, token, authFetch, onLogout }) {
   }, [activeOrder?.id, showChat, authFetch]);
 
   const reverseGeocode = async (lat, lng) => {
+    const latitude = Number(lat);
+    const longitude = Number(lng);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return '';
+
     try {
-      const res = await fetch(`https://geocode-maps.yandex.ru/1.x/?apikey=${YANDEX_GEO_KEY}&geocode=${lng},${lat}&format=json&results=1&lang=ru_RU`);
+      if (window.ymaps?.geocode) {
+        await new Promise((resolve) => window.ymaps.ready(resolve));
+        const result = await new Promise((resolve, reject) => {
+          window.ymaps.geocode([latitude, longitude], { results: 1 }).then(resolve, reject);
+        });
+        const address = result.geoObjects.get(0)?.getAddressLine();
+        if (address) return address;
+      }
+    } catch (err) {
+      console.warn('Не удалось получить адрес через API карт', err);
+    }
+
+    if (!YANDEX_GEO_KEY) return '';
+    try {
+      const query = new URLSearchParams({
+        apikey: YANDEX_GEO_KEY,
+        geocode: `${longitude},${latitude}`,
+        format: 'json',
+        results: '1',
+        lang: 'ru_RU',
+      });
+      const res = await fetch(`https://geocode-maps.yandex.ru/1.x/?${query}`);
+      if (!res.ok) return '';
       const data = await res.json();
-      return data.response?.GeoObjectCollection?.featureMember[0]?.GeoObject?.metaDataProperty?.GeocoderMetaData?.text || '';
-    } catch { return ''; }
+      return data.response?.GeoObjectCollection?.featureMember?.[0]?.GeoObject?.metaDataProperty?.GeocoderMetaData?.text || '';
+    } catch {
+      return '';
+    }
   };
 
   const handleMapSelect = async (selected) => {

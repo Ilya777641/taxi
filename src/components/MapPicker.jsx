@@ -1,9 +1,19 @@
 import { useEffect, useRef, useState } from 'react';
 
+const DEFAULT_COORDS = [54.6917, 55.0095];
+
+function normalizeCoords(value) {
+  if (Array.isArray(value) && value.length >= 2) return [Number(value[0]), Number(value[1])];
+  if (value && Number.isFinite(Number(value.lat)) && Number.isFinite(Number(value.lng))) {
+    return [Number(value.lat), Number(value.lng)];
+  }
+  return DEFAULT_COORDS;
+}
+
 function MapPicker({ initialCoords, onSelect, onClose }) {
   const mapRef = useRef(null);
   const [mapReady, setMapReady] = useState(false);
-  const [coords, setCoords] = useState(initialCoords || [54.6917, 55.0095]);
+  const [coords, setCoords] = useState(() => normalizeCoords(initialCoords));
 
   useEffect(() => {
     let mapInstance = null;
