@@ -121,7 +121,7 @@ app.get('/api/geocode/reverse', authRequired, async (c) => {
   });
 
   try {
-    const response = await fetch(`https://geocode-maps.yandex.ru/v1/?${query}`);
+    const response = await fetch(`https://geocode-maps.yandex.ru/v1/?${query}`, { headers: { Referer: 'https://taxi.my-money.site/' } });
     const data = await response.json();
     if (!response.ok) {
       console.error('Yandex geocoder returned status', response.status);
